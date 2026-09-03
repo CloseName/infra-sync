@@ -1,0 +1,19 @@
+[Unit]
+Description=Infra MAP Proxmox to NetBox synchronization
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/infra-sync/src
+ExecStart=/opt/infra-sync/src/scripts/run-full-sync.sh
+
+User=root
+Group=root
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=infra-netbox-sync

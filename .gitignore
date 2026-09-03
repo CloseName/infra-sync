@@ -1,0 +1,9 @@
+dist/
+*.egg-info/
+# Python
+__pycache__/
+*.py[cod]
+
+# Local configuration
+.env
+.env.*

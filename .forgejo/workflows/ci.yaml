@@ -1,0 +1,19 @@
+name: CI
+
+on: [ push ]
+jobs:
+  ci:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - run: pip install -r requirements-dev.txt
+
+      - run: pylint --fail-under=9.0 --max-line-length=120 netbox_pve_sync
+
+      - run: pytest -q

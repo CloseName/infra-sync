@@ -1,0 +1,51 @@
+services:
+  infra-netbox-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: infra-netbox-sync
+
+    environment:
+      SYNC_MODE: inventory
+      SOURCE_INSTANCE: ${SOURCE_INSTANCE:-pve-infra-test}
+
+      PVE_API_HOST: ${PVE_API_HOST:?PVE_API_HOST is required}
+      PVE_API_USER: ${PVE_API_USER:?PVE_API_USER is required}
+      PVE_API_VERIFY_SSL: ${PVE_API_VERIFY_SSL:-false}
+
+      PVE_API_TOKEN_FILE: /run/secrets/proxmox_token_id
+      PVE_API_SECRET_FILE: /run/secrets/proxmox_token_secret
+
+      NB_API_URL: ${NB_API_URL:-http://netbox:8080}
+      NB_API_TOKEN_FILE: /run/secrets/netbox_api_token
+
+      NB_SITE_SLUG: ${NB_SITE_SLUG:?NB_SITE_SLUG is required}
+      NB_DEVICE_ROLE_SLUG: ${NB_DEVICE_ROLE_SLUG:?NB_DEVICE_ROLE_SLUG is required}
+      NB_PLATFORM_SLUG: ${NB_PLATFORM_SLUG:?NB_PLATFORM_SLUG is required}
+      NB_DEVICE_TYPE_SLUG: ${NB_DEVICE_TYPE_SLUG:?NB_DEVICE_TYPE_SLUG is required}
+      NB_CLUSTER_TYPE_SLUG: ${NB_CLUSTER_TYPE_SLUG:?NB_CLUSTER_TYPE_SLUG is required}
+      NB_CLUSTER_NAME: ${NB_CLUSTER_NAME:?NB_CLUSTER_NAME is required}
+
+    volumes:
+      - ../secrets/proxmox_token_id:/run/secrets/proxmox_token_id:ro
+      - ../secrets/proxmox_token_secret:/run/secrets/proxmox_token_secret:ro
+      - ../secrets/netbox_api_token:/run/secrets/netbox_api_token:ro
+      - ../secrets/esxi_infra_sync_password:/run/secrets/infra-sync/esxi_infra_sync_password:ro
+
+    networks:
+      - netbox
+
+    restart: "no"
+    read_only: true
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+networks:
+  netbox:
+    external: true
+    name: netbox_default

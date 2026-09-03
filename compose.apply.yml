@@ -1,0 +1,7 @@
+services:
+  infra-netbox-sync:
+    environment:
+      NB_APPLY_API_TOKEN_FILE: /run/secrets/netbox_apply_api_token
+
+    volumes:
+      - ../secrets/netbox_apply_api_token:/run/secrets/netbox_apply_api_token:ro
