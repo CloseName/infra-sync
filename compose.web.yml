@@ -1,0 +1,26 @@
+# Opt-in extension of the same Compose project. Also runnable by itself for development.
+services:
+  infra-sync-api:
+    profiles: [web]
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "127.0.0.1:${INFRA_SYNC_WEB_PORT:-8000}:8000"
+    environment:
+      INFRA_SYNC_REGISTRY_DSN: ${INFRA_SYNC_REGISTRY_DSN:-}
+      INFRA_SYNC_REGISTRY_SCHEMA: ${INFRA_SYNC_REGISTRY_SCHEMA:-}
+      NB_API_URL: ${NB_API_URL:-}
+      # Presence only. Do not mount/read NetBox or source secrets in the API.
+      NB_API_TOKEN_FILE: ${NB_API_TOKEN_FILE:-}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).close()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

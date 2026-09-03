@@ -1,7 +1,8 @@
-# Infra Sync architecture — WEB-0
+# Infra Sync architecture — WEB-0 foundation / WEB-1 read-only shell
 
-Status: foundation only. No API server, frontend, worker daemon or new scheduler
-is enabled by this change. Production runtime remains the authority.
+Status: an opt-in API and frontend now provide read-only health reporting.
+No worker daemon or new scheduler is enabled. Production runtime remains the
+authority. See [WEB-1](web.md) for the implemented boundary and startup commands.
 
 ## Current state, verified from code
 
@@ -53,11 +54,14 @@ alembic.ini                     migration paths, never credentials
 requirements-migrations.txt     operator tooling, not runtime dependencies
 ```
 
-WEB-1 may add `netbox_pve_sync/api/` (FastAPI) and `frontend/` (React/TypeScript,
+WEB-1 adds `netbox_pve_sync/api/` (FastAPI) and `frontend/` (React/TypeScript,
 Vite). No top-level backend package is needed: API, application and worker code
 can share the existing distributable Python package. Do not move stable modules
 for cosmetic layering. Migration dependencies are dev/operator-only for now;
-the current Dockerfile and distribution dependency set remain unchanged.
+the current Dockerfile and base distribution dependencies remain unchanged.
+Web dependencies are an optional extra. Dockerfile.web builds that extra plus
+frontend assets; Compose adds an opt-in API role in the same project. This avoids
+changing the deployed CLI image before an approved cutover.
 
 ## Component contracts
 

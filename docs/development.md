@@ -19,5 +19,6 @@ Package discovery explicitly includes only `netbox_pve_sync*`, preventing deploy
 and migration directories from becoming accidental Python distributions.
 
 Normal tests use fakes, never a production source or NetBox. Live ESXi and
-PostgreSQL tests remain opt-in. No HTTP routes, frontend build or daemon are
-provided yet. See [architecture](architecture.md) and [migrations](migrations.md).
+PostgreSQL tests remain opt-in. See [WEB-1 development and deployment](web.md)
+for the optional API/frontend, and [architecture](architecture.md) and
+[migrations](migrations.md) for runtime and database boundaries.

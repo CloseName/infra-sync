@@ -30,6 +30,9 @@ Homepage = "https://github.com/CloseName/infra-sync"
 Issues = "https://github.com/CloseName/infra-sync/issues"
 Changelog = "https://github.com/CloseName/infra-sync/blob/main/Changelog.md"
 
+[project.optional-dependencies]
+web = ["fastapi>=0.115,<1", "pydantic>=2.10,<3", "uvicorn>=0.34,<1"]
+
 [project.scripts]
 nbpxsync = "netbox_pve_sync:main"
 
