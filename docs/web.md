@@ -1,4 +1,4 @@
-# WEB-1: read-only System Health
+# WEB-2: read-only System Health and Sources
 
 The optional Web/API shell does not execute discovery, plans or sync. Existing
 CLI, registry-all behavior, identities, confirmations, systemd and locks are
@@ -145,7 +145,106 @@ source CRUD, secret management, Sync Now, Plan, queue, worker, scheduler, or run
 history is implemented. Reverse-proxy authentication/rate limiting/log policy
 and production image/network validation remain deployment gates.
 
-Recommended WEB-2: read-only source summaries through allowlisted DTOs and an
-application service, with credential redaction and access-control design before
-introducing mutations. Do not change scheduling or add execution endpoints as
-an incidental extension of the health page.
+## WEB-2 source visibility
+
+The shell has System Health and Sources navigation using local React state, not
+a new routing/state framework. Refresh returns to System Health; source selection
+is not a persistent URL. List and details fetch real API data with a 15-second
+browser timeout, loading, empty and safe error states. No source connection test
+is performed. Credentials are not loaded; no editing controls exist.
+
+| GET endpoint | Response |
+|---|---|
+| `/api/v1/sources` | `{ "sources": [...] }`, including an empty list |
+| `/api/v1/sources/{source_instance}` | One source DTO, exact instance match |
+
+Both use the same explicit projection:
+
+```text
+source_instance, type, name, address, enabled, sync_enabled, verify_ssl,
+sync_interval_seconds, site_slug, cluster_name, platform_slug, device_role_slug,
+device_type_slug, cluster_type_slug, legacy_identity_owner, status
+```
+
+Target values are configured slugs/names, not live-resolved NetBox objects.
+`type` maps from the `source_type` database column; `status` is derived, not stored:
+disabled when enabled=false; sync_disabled when enabled=true and sync_enabled=false;
+otherwise enabled. No status claims health/authentication. The configured interval
+is not evidence that the existing systemd scheduler enforces per-source intervals.
+
+SourceVisibilityService maps to immutable SourceView objects. PostgresSourceReader
+selects only the 15 stored fields above (source_type instead of type; no status).
+It never selects id, username, token_id_provider, token_id_key,
+token_secret_provider, token_secret_key, settings, created_at or updated_at.
+No SourceRegistry objects, credential resolvers, initialize calls or Alembic are
+used in the read path. The registry version check and source query execute in a
+read-only transaction with the same configuration and timeouts as WEB-1.
+
+The API returns SOURCE_NOT_FOUND/404 for absent or invalid instance identifiers,
+REGISTRY_UNAVAILABLE/503 for missing configuration, invalid schema, unsupported
+registry version or database errors, and SOURCE_DATA_INVALID/503 for malformed
+public metadata. Envelopes include the server-generated request ID; no driver
+messages or queried instance strings are included in error messages/logs.
+
+Addresses containing userinfo, query strings, fragments, encoded characters or
+non-root paths are rejected rather than exposing potential credentials. This
+conservative policy can reject a valid path-based endpoint: correct the public
+address design before relaxing it. No generic sanitizer can detect a secret
+deliberately stored as a display name or hostname; public metadata fields must
+not be used to store credentials. An invalid row fails the complete list closed.
+There is no pagination yet; intended for the existing small registry.
+
+## Registry access and production viewing
+
+compose.web.yml remains unchanged: supply INFRA_SYNC_REGISTRY_DSN and
+INFRA_SYNC_REGISTRY_SCHEMA through the operator's protected environment/.env
+configuration. Never commit or print a populated DSN. No DSN-file loader or new
+secret mount is introduced. The DSN is visible to Docker administrators through
+container configuration; protect host access accordingly.
+
+Use a dedicated PostgreSQL login with CONNECT on the Infra Sync database, USAGE
+on the application schema, SELECT(key,value) on schema_meta, and column-level
+SELECT on sources for the 15 projection columns plus id (WEB-1 health currently
+reads id in a LIMIT 0 projection). Grant no table-wide source SELECT if credential
+reference access should be prevented at the database layer. Do not grant writes,
+schema CREATE, role administration or migration ownership. An operator must
+review/apply permissions separately; WEB-2 never creates roles or changes grants.
+
+The API must have private network reachability to PostgreSQL. Docker's localhost
+is the container itself. Use the operator-managed private network/address; do not
+publish PostgreSQL to the Internet. A supplied DSN is shared by health and source
+visibility. Existing unbaselined registry v1 works without migration.
+
+The reported production binding is 127.0.0.1:8001 -> container:8000. The checked-in
+Compose default remains 8000; use INFRA_SYNC_WEB_PORT=8001 for that deployment.
+View it through an SSH tunnel, replacing the example user/host:
+
+```sh
+ssh -N -L 18001:127.0.0.1:8001 operator@infra-sync-server
+```
+
+Open http://127.0.0.1:18001 and select Sources. Locally, run the API and Vite as
+above, supplying only a disposable registry connection if testing data access.
+This remains unauthenticated: never expose it publicly. Source addresses and
+target metadata are operationally sensitive even without credentials.
+
+## WEB-2 tests
+
+```sh
+pytest -q tests/test_api_sources.py tests/test_api_sources_postgres.py
+cd frontend
+npm test
+npm run typecheck
+npm run build
+```
+
+Node's built-in test runner tests source response validation and client errors;
+no frontend test framework dependency was added. PostgreSQL tests require
+INFRA_SYNC_TEST_POSTGRES_DSN explicitly targeting database `infra_sync_test`.
+They create a unique infra_sync_test_* schema, initialize fixture data only in
+that disposable database, and drop that exact schema during cleanup. Never point
+the test variable at production. Ordinary tests skip PostgreSQL when unset.
+
+Recommended WEB-3: authentication/access-control foundation and broader UI/DB
+integration coverage before adding write operations. Keep source CRUD, secret
+writes, execution and scheduler cutover under separate explicit approval.

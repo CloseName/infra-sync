@@ -13,9 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from ..application.health import SystemHealthService
+from ..application.sources import SourceReadError, SourceVisibilityService
 from .database import PostgresHealthProbe
 from .dto import ErrorDTO, ErrorDetailDTO, LivenessDTO, SystemHealthDTO, VersionDTO
 from .settings import ApiSettings, application_version
+from .source_reader import PostgresSourceReader
+from .dto import SourceDTO, SourceListDTO
 
 LOGGER = logging.getLogger('infra_sync.api')
 
@@ -27,6 +30,16 @@ def _error(request, status, code, message):
 
 
 def _install_boundaries(app):
+    @app.exception_handler(SourceReadError)
+    async def source_error(request, exc):
+        errors = {
+            'SOURCE_NOT_FOUND': (404, 'Source not found'),
+            'SOURCE_DATA_INVALID': (503, 'Source metadata is unavailable'),
+            'REGISTRY_UNAVAILABLE': (503, 'Source registry is unavailable'),
+        }
+        status, message = errors[exc.code.value]
+        return _error(request, status, exc.code.value, message)
+
     @app.middleware('http')
     async def request_boundary(request: Request, call_next):
         # Never trust/re-emit client correlation headers, URLs, query or body.
@@ -64,7 +77,7 @@ def _install_boundaries(app):
         return _error(request, 422, 'API_VALIDATION_FAILED', 'Request validation failed')
 
 
-def create_app(settings=None, service=None):
+def create_app(settings=None, service=None, source_service=None):
     """Construct without DB access; all environment reading is confined to bootstrap."""
     if not LOGGER.handlers:
         LOGGER.addHandler(logging.StreamHandler())
@@ -73,6 +86,7 @@ def create_app(settings=None, service=None):
     service = service or SystemHealthService(
         PostgresHealthProbe(settings), netbox_configured=settings.netbox_configured,
     )
+    source_service = source_service or SourceVisibilityService(PostgresSourceReader(settings))
     app = FastAPI(title='Infra Sync', version=application_version(),
                   docs_url=None, redoc_url=None, openapi_url=None, debug=False)
     _install_boundaries(app)
@@ -89,6 +103,14 @@ def create_app(settings=None, service=None):
     @router.get('/version', response_model=VersionDTO)
     def version():
         return VersionDTO(version=application_version())
+
+    @router.get('/sources', response_model=SourceListDTO)
+    def sources():
+        return SourceListDTO(sources=[SourceDTO.from_view(view) for view in source_service.list_sources()])
+
+    @router.get('/sources/{source_instance}', response_model=SourceDTO)
+    def source_detail(source_instance: str):
+        return SourceDTO.from_view(source_service.get_source(source_instance))
 
     app.include_router(router)
     if settings.web_dist:
