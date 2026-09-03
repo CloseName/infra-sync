@@ -1,7 +1,7 @@
 # pylint: disable=fixme,too-many-branches
 
 """
-netbox-pve-sync: Synchronize Proxmox Virtual Environment (PVE) information to a NetBox instance
+Infra Sync: Synchronize Proxmox Virtual Environment (PVE) information to a NetBox instance
 """
 
 import os
@@ -1116,7 +1116,7 @@ def _source_dispatch(sync_mode):
 
 
 def main():
-    """netbox-pve-sync main entrypoint."""
+    """Infra Sync main entrypoint."""
 
     sync_mode = _get_sync_mode()
     print(f'SYNC_MODE={sync_mode}')

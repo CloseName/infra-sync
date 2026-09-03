@@ -1,6 +1,6 @@
-# netbox-pve-sync
+# Infra Sync
 
-Synchronize Proxmox Virtual Environment (PVE) information to a NetBox instance.
+Synchronize infrastructure from multiple virtualization sources, including Proxmox VE and VMware ESXi, to NetBox.
 This allows automatic tracking of Virtual Machines, disks, IP addresses/prefixes, MAC addresses, VLANs, ...
 
 ## How does it work?
@@ -19,7 +19,7 @@ $ pip install netbox-pve-sync
 
 ### On NetBox
 
-You'll need to create a dedicated user (ex: netbox-pve-sync) on your NetBox instance and then create a write API
+You'll need to create a dedicated user (ex: infra-sync) on your NetBox instance and then create a write API
 token.
 
 The following env variables will need to be set:

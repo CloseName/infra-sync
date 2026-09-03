@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Infra MAP Proxmox sync every 10 minutes
+Description=Run Infra Sync synchronization every 10 minutes
 
 [Timer]
 OnBootSec=2min

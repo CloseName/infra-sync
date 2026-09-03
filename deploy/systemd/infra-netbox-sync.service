@@ -1,5 +1,5 @@
 [Unit]
-Description=Infra MAP Proxmox to NetBox synchronization
+Description=Infra Sync infrastructure to NetBox synchronization
 Wants=network-online.target docker.service
 After=network-online.target docker.service
 

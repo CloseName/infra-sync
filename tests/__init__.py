@@ -1,1 +1,1 @@
-"""Test suite for infra-netbox-sync."""
+"""Test suite for Infra Sync."""

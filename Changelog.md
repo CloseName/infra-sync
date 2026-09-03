@@ -1,4 +1,4 @@
-# netbox-pve-sync
+# Infra Sync
 
 ## [Unreleased]
 
