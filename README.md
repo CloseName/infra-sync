@@ -5,7 +5,16 @@ This allows automatic tracking of Virtual Machines, disks, IP addresses/prefixes
 
 ## How does it work?
 
-This script work by pulling VMs information from the PVE API and create/update/delete resources on NetBox.
+Infra Sync discovers source inventory and reconciles it through guarded NetBox planning/apply paths.
+Disappearance is retain-only; synchronization does not delete NetBox objects.
+
+## Architecture and development
+
+The current registry-backed runtime and the WEB-0 foundation are documented in
+[Architecture](docs/architecture.md), [Development](docs/development.md), and
+[Database migrations](docs/migrations.md). WEB-0 does not enable a Web Panel or
+replace the existing systemd scheduler. The legacy setup notes below do not
+describe the complete current registry-all deployment.
 
 ## Installation
 
