@@ -1,11 +1,13 @@
 """WEB-5 apply worker rejects capability-bearing input and sanitizes children."""
 
+from io import BytesIO, StringIO
 import json
 import subprocess
 
 import pytest
 
-from netbox_pve_sync.apply_worker import ApplySupervisor, ApplyWorkerError, _receive
+from netbox_pve_sync.apply_worker import (ApplySupervisor, ApplyWorkerError, _receive,
+                                          child_main)
 from netbox_pve_sync.discovery_worker import _safe_environment
 
 
@@ -21,6 +23,33 @@ class Connection:
     def recv(self, _size):
         value, self.value = self.value, b''
         return value
+
+
+class ChildInput:
+    """Text-stream shape exposing binary child input."""
+
+    def __init__(self, payload):
+        self.buffer = BytesIO(json.dumps(payload).encode())
+
+
+def test_apply_child_redirects_executor_output_and_emits_only_json(monkeypatch):
+    output, errors = StringIO(), StringIO()
+
+    def execute(_payload):
+        print('guarded apply output')
+        return {'status': 'SUCCEEDED', 'plan_digest': 'a' * 64}
+
+    monkeypatch.setattr('netbox_pve_sync.apply_worker.execute_child', execute)
+    monkeypatch.setattr('netbox_pve_sync.apply_worker.sys.stdin', ChildInput(
+        {'operation': 'apply'}))
+    monkeypatch.setattr('netbox_pve_sync.apply_worker.sys.stdout', output)
+    monkeypatch.setattr('netbox_pve_sync.apply_worker.sys.stderr', errors)
+    child_main()
+    assert json.loads(output.getvalue()) == {'result': {
+        'status': 'SUCCEEDED', 'plan_digest': 'a' * 64,
+    }}
+    assert 'guarded apply output' not in output.getvalue()
+    assert 'guarded apply output' in errors.getvalue()
 
 
 def test_worker_accepts_only_fixed_well_formed_prepare_and_apply_requests():

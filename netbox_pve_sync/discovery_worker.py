@@ -5,6 +5,7 @@
 # pylint: disable=too-many-locals,subprocess-popen-preexec-fn
 
 import argparse
+from contextlib import redirect_stdout
 import json
 import logging
 import os
@@ -211,7 +212,9 @@ def child_main():
         raw = sys.stdin.buffer.read(MAX_RESPONSE + 1)
         if len(raw) > MAX_RESPONSE:
             raise ValueError('payload too large')
-        result = {'result': execute_child(json.loads(raw))}
+        with redirect_stdout(sys.stderr):
+            value = execute_child(json.loads(raw))
+        result = {'result': value}
     except WorkerError as exc:
         result = {'error': exc.code}
     except Exception:  # pylint: disable=broad-exception-caught

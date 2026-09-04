@@ -1,5 +1,6 @@
 """Discovery worker protocol and privilege-boundary tests."""
 
+from io import BytesIO, StringIO
 import json
 import subprocess
 from dataclasses import replace
@@ -7,7 +8,7 @@ from dataclasses import replace
 import pytest
 
 from netbox_pve_sync.discovery_worker import (DiscoverySupervisor, WorkerError, _authorize_peer,
-                                               _receive, _safe_environment)
+                                               _receive, _safe_environment, child_main)
 from netbox_pve_sync.source_config import SecretReference, SourceCredentials
 from netbox_pve_sync.secret_resolver import FileSecretResolver, SecretResolutionError
 from tests.sample_data import sample_source_config
@@ -23,6 +24,58 @@ class Connection:
 
     def recv(self, _size):
         return self.value
+
+
+class ChildInput:
+    """Text-stream shape exposing bounded binary child input."""
+
+    def __init__(self, payload):
+        self.buffer = BytesIO(json.dumps(payload).encode())
+
+
+def _run_child(monkeypatch, payload, execute):
+    output, errors = StringIO(), StringIO()
+    monkeypatch.setattr('netbox_pve_sync.discovery_worker.execute_child', execute)
+    monkeypatch.setattr('netbox_pve_sync.discovery_worker.sys.stdin', ChildInput(payload))
+    monkeypatch.setattr('netbox_pve_sync.discovery_worker.sys.stdout', output)
+    monkeypatch.setattr('netbox_pve_sync.discovery_worker.sys.stderr', errors)
+    child_main()
+    return output.getvalue(), errors.getvalue()
+
+
+def test_plan_child_redirects_executor_output_and_emits_only_json(monkeypatch):
+    def execute(_payload):
+        print('arbitrary guarded executor output')
+        return {'apply_allowed': True, 'items': 26}
+
+    output, errors = _run_child(
+        monkeypatch, {'operation': 'plan', 'source': {}}, execute)
+    assert json.loads(output) == {'result': {'apply_allowed': True, 'items': 26}}
+    assert 'arbitrary guarded executor output' not in output
+    assert 'arbitrary guarded executor output' in errors
+
+
+def test_child_error_after_executor_output_remains_valid_json(monkeypatch):
+    def execute(_payload):
+        print('precheck output before error')
+        raise WorkerError('PROVIDER_UNAVAILABLE')
+
+    output, errors = _run_child(monkeypatch, {'operation': 'plan'}, execute)
+    assert json.loads(output) == {'error': 'PROVIDER_UNAVAILABLE'}
+    assert 'precheck output before error' not in output
+    assert 'precheck output before error' in errors
+
+
+def test_ordinary_discovery_child_transport_is_unchanged(monkeypatch):
+    def execute(payload):
+        assert payload == {'source_instance': 'pve-test'}
+        print('provider diagnostic')
+        return {'source_instance': 'pve-test', 'items': []}
+
+    output, _errors = _run_child(monkeypatch, {'source_instance': 'pve-test'}, execute)
+    assert json.loads(output) == {
+        'result': {'source_instance': 'pve-test', 'items': []},
+    }
 
 
 def test_worker_accepts_only_source_instance():

@@ -5,6 +5,7 @@
 # pylint: disable=too-few-public-methods,import-error,duplicate-code
 
 import argparse
+from contextlib import redirect_stdout
 import json
 import os
 import re
@@ -117,7 +118,9 @@ def child_main():
     """Execute without logging secrets or exception text."""
     try:
         payload = json.loads(sys.stdin.buffer.read(MAX_RESPONSE + 1))
-        result = {'result': execute_child(payload)}
+        with redirect_stdout(sys.stderr):
+            value = execute_child(payload)
+        result = {'result': value}
     except ApplyWorkerError as exc:
         result = {'error': exc.code}
     except Exception:  # pylint: disable=broad-exception-caught
