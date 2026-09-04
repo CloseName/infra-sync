@@ -15,6 +15,7 @@ services:
       NB_API_TOKEN_FILE: ${NB_API_TOKEN_FILE:-}
       INFRA_SYNC_REGISTRATION_DSN: ${INFRA_SYNC_REGISTRATION_DSN:-}
       INFRA_SYNC_BROKER_SOCKET: /run/infra-sync-broker/broker.sock
+      INFRA_SYNC_DISCOVERY_SOCKET: /run/infra-sync-discovery/worker.sock
       INFRA_SYNC_WRITE_HOSTS: ${INFRA_SYNC_WRITE_HOSTS:-127.0.0.1:8000,localhost:8000}
       INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS: ${INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS:-}
       INFRA_SYNC_ONBOARDING_DENIED_CIDRS: ${INFRA_SYNC_ONBOARDING_DENIED_CIDRS:-}
@@ -22,6 +23,7 @@ services:
       INFRA_SYNC_ONBOARDING_ALLOWED_SUFFIXES: ${INFRA_SYNC_ONBOARDING_ALLOWED_SUFFIXES:-}
     volumes:
       - infra-sync-broker-socket:/run/infra-sync-broker:ro
+      - infra-sync-discovery-socket:/run/infra-sync-discovery:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -52,5 +54,40 @@ services:
       - ${INFRA_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/var/lib/infra-sync/source-secrets
     restart: unless-stopped
 
+  infra-sync-discovery-worker:
+    profiles: [discovery]
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    user: "0:0"
+    command: [python, -m, netbox_pve_sync.discovery_worker,
+              --socket, /run/infra-sync-discovery/worker.sock,
+              --secret-root, /run/secrets/infra-sync,
+              --source-secret-root, /run/secrets/infra-sync-sources,
+              --netbox-token-file, /run/secrets/netbox-read-token,
+              --api-uid, "10001", --child-uid, "10001", --child-gid, "10001"]
+    environment:
+      INFRA_SYNC_DISCOVERY_REGISTRY_DSN: ${INFRA_SYNC_DISCOVERY_REGISTRY_DSN:-}
+      INFRA_SYNC_REGISTRY_SCHEMA: ${INFRA_SYNC_REGISTRY_SCHEMA:-}
+      INFRA_SYNC_DISCOVERY_NB_API_URL: ${INFRA_SYNC_DISCOVERY_NB_API_URL:-}
+    volumes:
+      - infra-sync-discovery-socket:/run/infra-sync-discovery
+      - ${INFRA_SYNC_LEGACY_SOURCE_SECRET_DIR:-../secrets/legacy-sources}:/run/secrets/infra-sync:ro
+      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/run/secrets/infra-sync-sources:ro
+      - ${INFRA_SYNC_DISCOVERY_NB_TOKEN_FILE:-../secrets/netbox_discovery_token}:/run/secrets/netbox-read-token:ro
+    networks: [netbox]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
 volumes:
   infra-sync-broker-socket:
+  infra-sync-discovery-socket:
+
+networks:
+  netbox:
+    external: true
+    name: netbox_default

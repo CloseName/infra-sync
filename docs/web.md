@@ -480,3 +480,40 @@ the test variable at production. Ordinary tests skip PostgreSQL when unset.
 Recommended WEB-3: authentication/access-control foundation and broader UI/DB
 integration coverage before adding write operations. Keep source CRUD, secret
 writes, execution and scheduler cutover under separate explicit approval.
+# WEB-4 read-only discovery worker
+
+The API controls discovery only through `/run/infra-sync-discovery/worker.sock`; it has no
+source-secret or NetBox-token mount. The root supervisor reads the minimum read-only mounts,
+then launches provider and NetBox reads as UID/GID 10001 with a restricted environment and a
+120-second deadline. The worker publishes no port and joins only `netbox_default` for outbound
+provider and NetBox access. Results are ephemeral.
+
+The API retains its already-reviewed WEB-3 `INFRA_SYNC_REGISTRATION_DSN` as an explicit exception.
+That role remains registration-only; it is not supplied to the discovery worker and is removed from
+the discovery child's environment. Neither API nor discovery receives registry sync/apply authority.
+
+For production database `infra_sync`, create the distinct reader role and grant only:
+
+```sql
+CREATE ROLE infra_sync_discovery_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
+ALTER ROLE infra_sync_discovery_reader SET default_transaction_read_only = on;
+REVOKE ALL ON DATABASE infra_sync FROM infra_sync_discovery_reader;
+GRANT CONNECT ON DATABASE infra_sync TO infra_sync_discovery_reader;
+REVOKE ALL ON SCHEMA infra_sync FROM infra_sync_discovery_reader;
+GRANT USAGE ON SCHEMA infra_sync TO infra_sync_discovery_reader;
+REVOKE ALL ON ALL TABLES IN SCHEMA infra_sync FROM infra_sync_discovery_reader;
+GRANT SELECT (key, value) ON infra_sync.schema_meta TO infra_sync_discovery_reader;
+GRANT SELECT ON infra_sync.sources TO infra_sync_discovery_reader;
+```
+
+Configure `INFRA_SYNC_DISCOVERY_REGISTRY_DSN` with that role. Do not reuse the Web registration
+or sync runtime role. Configure `INFRA_SYNC_DISCOVERY_NB_API_URL` and mount a separate NetBox API
+token at the host path in `INFRA_SYNC_DISCOVERY_NB_TOKEN_FILE`. Its NetBox role needs view-only
+permissions for DCIM devices, interfaces, sites, roles, platforms, device types, IPAM IP addresses,
+prefixes and VLANs, and virtualization clusters, cluster types, VMs and VM interfaces. It must have
+no add/change/delete permissions.
+
+Mount only the legacy source-secret directory and WEB-3 source-secret directory, read-only. Start
+the `web` and `discovery` profiles together. Smoke-check health and a protected discovery request,
+then verify NetBox audit logs contain no POST/PATCH/PUT/DELETE. Never use an apply-capable NetBox
+token for this worker.

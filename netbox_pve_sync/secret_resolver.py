@@ -29,13 +29,27 @@ class ResolvedSourceCredentials:
 class FileSecretResolver:
     """Resolve environment and fixed-root file references without logging values."""
 
-    def __init__(self, environ=None, secret_root=DEFAULT_SECRET_ROOT, source_secret_root=None):
+    def __init__(self, environ=None, secret_root=DEFAULT_SECRET_ROOT, source_secret_root=None,
+                 max_secret_bytes=None):
         self._environ = os.environ if environ is None else environ
         self._secret_root = Path(secret_root)
         self._source_secret_root = (
             Path(source_secret_root) if source_secret_root is not None else
             DEFAULT_SOURCE_SECRET_ROOT if self._secret_root == DEFAULT_SECRET_ROOT else None
         )
+        self._max_secret_bytes = max_secret_bytes
+
+    def _read_text(self, path):
+        if self._max_secret_bytes is None:
+            return path.read_text(encoding='utf-8').strip()
+        with path.open('rb') as stream:
+            value = stream.read(self._max_secret_bytes + 1)
+        if len(value) > self._max_secret_bytes:
+            raise SecretResolutionError('configured file secret exceeds maximum size')
+        try:
+            return value.decode('utf-8').strip()
+        except UnicodeDecodeError as exc:
+            raise SecretResolutionError('configured file secret is not valid UTF-8') from exc
 
     def _read_file(self, key):
         if not LOGICAL_SECRET_KEY.fullmatch(key):
@@ -45,12 +59,12 @@ class FileSecretResolver:
         path = self._secret_root / key
         try:
             try:
-                value = path.read_text(encoding='utf-8').strip()
+                value = self._read_text(path)
             except FileNotFoundError:
                 # Preserve legacy priority. Never mask an unreadable/invalid old file.
                 if self._source_secret_root is None:
                     raise
-                value = (self._source_secret_root / key).read_text(encoding='utf-8').strip()
+                value = self._read_text(self._source_secret_root / key)
         except OSError as exc:
             raise SecretResolutionError(
                 f'unable to read configured file secret {key!r}'

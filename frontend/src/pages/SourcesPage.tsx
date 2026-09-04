@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { fetchSource, fetchSources } from '../api/sources';
 import type { Source } from '../api/sources';
+import { runDiscovery } from '../api/discovery';
+import type { DiscoveryResult } from '../api/discovery';
 
 const detailLabels: Record<keyof Source, string> = {
   source_instance: 'Source instance', type: 'Type', name: 'Display name', address: 'Address',
@@ -17,6 +19,20 @@ export function SourcesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
+  const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState('');
+  const [classFilter, setClassFilter] = useState('ALL');
+  const [kindFilter, setKindFilter] = useState('ALL');
+
+  const discover = async () => {
+    if (!selected) return;
+    const controller = new AbortController();
+    setDiscovering(true); setDiscoveryError(''); setDiscovery(null);
+    try { setDiscovery(await runDiscovery(selected, controller.signal)); }
+    catch (failure) { setDiscoveryError(failure instanceof Error ? failure.message : 'Discovery failed.'); }
+    finally { setDiscovering(false); }
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -39,7 +55,7 @@ export function SourcesPage() {
         Editing is not available.</p></div>
       <button disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button>
     </div>
-    {selected && <button onClick={() => setSelected(null)}>Back to sources</button>}
+    {selected && <button onClick={() => { setSelected(null); setDiscovery(null); }}>Back to sources</button>}
     {loading && <p role="status">Loading source configuration…</p>}
     {!loading && error && <p role="alert" className="source-error">{error}</p>}
     {!loading && !error && !selected && (sources.length === 0
@@ -53,12 +69,21 @@ export function SourcesPage() {
         <td>{source.enabled ? 'Yes' : 'No'}</td><td>{source.sync_enabled ? 'Configured on' : 'Configured off'}</td>
         <td>{source.sync_interval_seconds}s</td><td>{source.status.replaceAll('_', ' ')}</td>
       </tr>)}</tbody></table></div>)}
-    {!loading && !error && detail && <dl className="source-detail">
+    {!loading && !error && detail && <><dl className="source-detail">
       {(Object.keys(detailLabels) as (keyof Source)[]).map((key) => <div key={key}>
         <dt>{detailLabels[key]}</dt><dd>{typeof detail[key] === 'boolean'
           ? (detail[key] ? 'Yes' : 'No') : String(detail[key])}</dd>
       </div>)}
-    </dl>}
+    </dl><section className="discovery-review"><h2>Discovery / Preflight</h2>
+      <p>Read-only: this contacts the source and NetBox but makes no NetBox changes.</p>
+      <button disabled={discovering || !detail.enabled} onClick={discover}>Run discovery</button>
+      {discovering && <p role="status">Running read-only discovery…</p>}
+      {discoveryError && <p role="alert" className="source-error">{discoveryError}</p>}
+      {discovery && <><div className="summary-grid">{Array.from(new Set(discovery.items.map((item) => item.classification))).map((classification) => <div key={classification}><strong>{classification.replaceAll('_', ' ')}</strong> <span>{discovery.items.filter((item) => item.classification === classification).length}</span></div>)}</div>
+        <div className="filters"><label>Classification <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.classification))).map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label>Object kind <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.object_kind))).map((value) => <option key={value}>{value}</option>)}</select></label></div>
+        <div className="source-table"><table><thead><tr><th>Kind</th><th>Name</th><th>Classification</th><th>Reason</th><th>Future action</th><th>NetBox match</th></tr></thead><tbody>{discovery.items.filter((item) => (classFilter === 'ALL' || item.classification === classFilter) && (kindFilter === 'ALL' || item.object_kind === kindFilter)).map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.classification.replaceAll('_', ' ')}</td><td>{item.reason} ({item.reason_code})</td><td>{item.future_action}</td><td>{item.matched_object_name || '—'}</td></tr>)}</tbody></table></div></>}
+    </section></>}
     <p className="intro">Flags and interval describe registry configuration, not scheduler execution or source health.
       The existing systemd scheduler is unchanged.</p>
   </main>;

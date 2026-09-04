@@ -22,7 +22,8 @@ from .database import PostgresHealthProbe
 from .dto import ErrorDTO, ErrorDetailDTO, LivenessDTO, SystemHealthDTO, VersionDTO
 from .settings import ApiSettings, application_version
 from .source_reader import PostgresSourceReader
-from .dto import SourceDTO, SourceListDTO
+from .dto import DiscoveryResultDTO, SourceDTO, SourceListDTO
+from .discovery_client import DiscoveryRequestError, DiscoveryWorkerClient
 from .onboarding_dto import ConnectionRequest, ConnectionResult, RegistrationRequest
 from .onboarding_dto import CancellationRequest, CancellationResult
 from .onboarding_adapters import BrokerSecretStore, RegistrationRegistry, test_esxi, test_proxmox
@@ -66,14 +67,37 @@ def _install_boundaries(app, settings):
         status, message = errors[exc.code.value]
         return _error(request, status, exc.code.value, message)
 
+    @app.exception_handler(DiscoveryRequestError)
+    async def discovery_error(request, exc):
+        errors = {
+            'SOURCE_NOT_FOUND': (404, 'Source not found'),
+            'SOURCE_DISABLED': (409, 'Disabled sources cannot be discovered'),
+            'CREDENTIAL_UNAVAILABLE': (503, 'Discovery credentials are unavailable'),
+            'REGISTRY_UNAVAILABLE': (503, 'Discovery registry is unavailable'),
+            'DISCOVERY_TIMEOUT': (504, 'Discovery timed out'),
+            'PROVIDER_UNAVAILABLE': (502, 'Source discovery failed'),
+            'NETBOX_UNAVAILABLE': (502, 'NetBox comparison failed'),
+            'DISCOVERY_FAILED': (502, 'Discovery failed'),
+            'DISCOVERY_RESPONSE_INVALID': (502, 'Discovery returned an invalid response'),
+            'DISCOVERY_UNAVAILABLE': (503, 'Discovery worker is unavailable'),
+        }
+        status, message = errors.get(exc.code, errors['DISCOVERY_UNAVAILABLE'])
+        return _error(request, status, exc.code, message)
+
     @app.middleware('http')
     async def request_boundary(request: Request, call_next):
         # Never trust/re-emit client correlation headers, URLs, query or body.
         request.state.request_id = str(uuid4())
         request.state.error_code = None
         try:
-            if request.method == 'POST' and request.url.path in (
-                    '/api/v1/sources', '/api/v1/sources/test-connection', '/api/v1/sources/cancel-onboarding'):
+            if request.method == 'POST' and (
+                    request.url.path in (
+                        '/api/v1/sources', '/api/v1/sources/test-connection',
+                        '/api/v1/sources/cancel-onboarding',
+                    ) or (
+                        request.url.path.startswith('/api/v1/sources/')
+                        and request.url.path.endswith('/discovery')
+                    )):
                 origin = urlsplit(request.headers.get('origin', ''))
                 host = request.headers.get('host', '')
                 if (host not in settings.allowed_write_hosts or origin.netloc != host
@@ -120,7 +144,8 @@ def _install_boundaries(app, settings):
         return _error(request, 422, 'API_VALIDATION_FAILED', 'Request validation failed')
 
 
-def create_app(settings=None, service=None, source_service=None, onboarding_service=None):
+def create_app(settings=None, service=None, source_service=None, onboarding_service=None,
+               discovery_client=None):
     """Construct without DB access; all environment reading is confined to bootstrap."""
     if not LOGGER.handlers:
         LOGGER.addHandler(logging.StreamHandler())
@@ -136,6 +161,7 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
         RegistrationRegistry(settings.registration_dsn, settings.registry_schema),
         BrokerSecretStore(settings.broker_socket),
     )
+    discovery_client = discovery_client or DiscoveryWorkerClient(settings.discovery_socket)
     app = FastAPI(title='Infra Sync', version=application_version(),
                   docs_url=None, redoc_url=None, openapi_url=None, debug=False)
     _install_boundaries(app, settings)
@@ -160,6 +186,13 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
     @router.get('/sources/{source_instance}', response_model=SourceDTO)
     def source_detail(source_instance: str):
         return SourceDTO.from_view(source_service.get_source(source_instance))
+
+    @router.post('/sources/{source_instance}/discovery', response_model=DiscoveryResultDTO)
+    def discover_source(source_instance: str):
+        result = DiscoveryResultDTO.from_worker(discovery_client.discover(source_instance))
+        if result.source_instance != source_instance:
+            raise DiscoveryRequestError('DISCOVERY_RESPONSE_INVALID')
+        return result
 
     @router.post('/sources/test-connection', response_model=ConnectionResult)
     def connection_test(request: ConnectionRequest):

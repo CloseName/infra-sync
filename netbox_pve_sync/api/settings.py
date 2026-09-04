@@ -16,6 +16,7 @@ class ApiSettings:
     web_dist: str = field(default='', repr=False)
     registration_dsn: str = field(default='', repr=False)
     broker_socket: str = field(default='', repr=False)
+    discovery_socket: str = field(default='', repr=False)
     allowed_write_hosts: tuple[str, ...] = ('127.0.0.1:8000', 'localhost:8000')
     egress_policy: EgressPolicy = field(default_factory=EgressPolicy)
 
@@ -33,6 +34,7 @@ class ApiSettings:
             web_dist=env.get('INFRA_SYNC_WEB_DIST', '').strip(),
             registration_dsn=env.get('INFRA_SYNC_REGISTRATION_DSN', '').strip(),
             broker_socket=env.get('INFRA_SYNC_BROKER_SOCKET', '').strip(),
+            discovery_socket=env.get('INFRA_SYNC_DISCOVERY_SOCKET', '').strip(),
             allowed_write_hosts=tuple(value.strip() for value in env.get(
                 'INFRA_SYNC_WRITE_HOSTS', '127.0.0.1:8000,localhost:8000',
             ).split(',') if value.strip()),

@@ -115,3 +115,29 @@ class SourceListDTO(PublicModel):
     """Stable list envelope including an empty registry."""
 
     sources: list[SourceDTO]
+
+
+class DiscoveryItemDTO(PublicModel):
+    object_kind: Literal['host', 'qemu', 'lxc', 'vm']
+    name: str
+    external_id: str
+    classification: Literal['MANAGED', 'REVIEW_REQUIRED', 'WOULD_CREATE', 'IGNORED',
+                            'UNSUPPORTED', 'CONFLICT', 'NO_CHANGE']
+    reason_code: str
+    reason: str
+    future_action: Literal['none', 'create', 'update', 'review', 'ignored', 'unsupported']
+    matched_object_id: int | str | None = None
+    matched_object_name: str | None = None
+
+
+class DiscoveryResultDTO(PublicModel):
+    source_instance: str
+    source_type: Literal['proxmox', 'esxi']
+    site_slug: str
+    cluster_name: str
+    items: list[DiscoveryItemDTO]
+
+    @classmethod
+    def from_worker(cls, value):
+        """Validate every allowlisted worker field before public serialization."""
+        return cls.model_validate(value)
