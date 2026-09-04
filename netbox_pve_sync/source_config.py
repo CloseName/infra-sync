@@ -101,7 +101,7 @@ class SecretReference:
         _require_text(self.key, 'key')
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class SourceCredentials:
     """Non-secret username and references to source API credentials."""
 

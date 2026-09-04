@@ -9,6 +9,7 @@ from .source_config import SecretReference, SourceCredentials
 
 
 DEFAULT_SECRET_ROOT = Path('/run/secrets/infra-sync')
+DEFAULT_SOURCE_SECRET_ROOT = Path('/run/secrets/infra-sync-sources')
 LOGICAL_SECRET_KEY = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 
 
@@ -16,7 +17,7 @@ class SecretResolutionError(RuntimeError):
     """A secret reference could not be resolved safely."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class ResolvedSourceCredentials:
     """Ephemeral source credentials passed directly to the API client."""
 
@@ -28,9 +29,13 @@ class ResolvedSourceCredentials:
 class FileSecretResolver:
     """Resolve environment and fixed-root file references without logging values."""
 
-    def __init__(self, environ=None, secret_root=DEFAULT_SECRET_ROOT):
+    def __init__(self, environ=None, secret_root=DEFAULT_SECRET_ROOT, source_secret_root=None):
         self._environ = os.environ if environ is None else environ
         self._secret_root = Path(secret_root)
+        self._source_secret_root = (
+            Path(source_secret_root) if source_secret_root is not None else
+            DEFAULT_SOURCE_SECRET_ROOT if self._secret_root == DEFAULT_SECRET_ROOT else None
+        )
 
     def _read_file(self, key):
         if not LOGICAL_SECRET_KEY.fullmatch(key):
@@ -39,7 +44,13 @@ class FileSecretResolver:
             )
         path = self._secret_root / key
         try:
-            value = path.read_text(encoding='utf-8').strip()
+            try:
+                value = path.read_text(encoding='utf-8').strip()
+            except FileNotFoundError:
+                # Preserve legacy priority. Never mask an unreadable/invalid old file.
+                if self._source_secret_root is None:
+                    raise
+                value = (self._source_secret_root / key).read_text(encoding='utf-8').strip()
         except OSError as exc:
             raise SecretResolutionError(
                 f'unable to read configured file secret {key!r}'

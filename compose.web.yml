@@ -13,6 +13,15 @@ services:
       NB_API_URL: ${NB_API_URL:-}
       # Presence only. Do not mount/read NetBox or source secrets in the API.
       NB_API_TOKEN_FILE: ${NB_API_TOKEN_FILE:-}
+      INFRA_SYNC_REGISTRATION_DSN: ${INFRA_SYNC_REGISTRATION_DSN:-}
+      INFRA_SYNC_BROKER_SOCKET: /run/infra-sync-broker/broker.sock
+      INFRA_SYNC_WRITE_HOSTS: ${INFRA_SYNC_WRITE_HOSTS:-127.0.0.1:8000,localhost:8000}
+      INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS: ${INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS:-}
+      INFRA_SYNC_ONBOARDING_DENIED_CIDRS: ${INFRA_SYNC_ONBOARDING_DENIED_CIDRS:-}
+      INFRA_SYNC_ONBOARDING_ALLOWED_HOSTS: ${INFRA_SYNC_ONBOARDING_ALLOWED_HOSTS:-}
+      INFRA_SYNC_ONBOARDING_ALLOWED_SUFFIXES: ${INFRA_SYNC_ONBOARDING_ALLOWED_SUFFIXES:-}
+    volumes:
+      - infra-sync-broker-socket:/run/infra-sync-broker:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -24,3 +33,24 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+
+  infra-sync-secret-broker:
+    profiles: [onboarding]
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    user: "0:0"
+    group_add: ["10001"]
+    command: [python, -m, netbox_pve_sync.secret_broker, --socket, /run/infra-sync-broker/broker.sock,
+              --secret-root, /var/lib/infra-sync/source-secrets, --allowed-uid, "10001"]
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - infra-sync-broker-socket:/run/infra-sync-broker
+      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/var/lib/infra-sync/source-secrets
+    restart: unless-stopped
+
+volumes:
+  infra-sync-broker-socket:

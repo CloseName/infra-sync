@@ -28,6 +28,8 @@ services:
       NB_CLUSTER_NAME: ${NB_CLUSTER_NAME:?NB_CLUSTER_NAME is required}
 
     volumes:
+      # Separate root avoids nesting legacy file mounts inside a read-only bind.
+      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/run/secrets/infra-sync-sources:ro
       - ../secrets/proxmox_token_id:/run/secrets/proxmox_token_id:ro
       - ../secrets/proxmox_token_secret:/run/secrets/proxmox_token_secret:ro
       - ../secrets/netbox_api_token:/run/secrets/netbox_api_token:ro
