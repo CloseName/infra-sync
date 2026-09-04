@@ -3,10 +3,9 @@ import { fetchSource, fetchSources } from '../api/sources';
 import type { Source } from '../api/sources';
 import { runDiscovery } from '../api/discovery';
 import type { DiscoveryResult } from '../api/discovery';
-import { applySync, buildSyncPlan, ManualSyncRequestError, prepareSync } from '../api/sync';
-import type { SyncPlan } from '../api/sync';
+import { applySync, buildSyncPlan, ManualSyncRequestError, prepareSync, resultForSource } from '../api/sync';
+import type { ManualSyncResult, SyncPlan } from '../api/sync';
 
-interface SyncResult { kind: 'success' | 'error'; message: string; }
 const genericSyncFailure = 'Manual sync request failed. No automatic retry was performed.';
 
 const detailLabels: Record<keyof Source, string> = {
@@ -30,14 +29,15 @@ export function SourcesPage() {
   const [classFilter, setClassFilter] = useState('ALL');
   const [kindFilter, setKindFilter] = useState('ALL');
   const [syncPlan, setSyncPlan] = useState<SyncPlan | null>(null);
-  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [syncResult, setSyncResult] = useState<ManualSyncResult | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const visibleSyncResult = resultForSource(syncResult, selected);
 
   const buildPlan = async () => {
     if (!selected) return;
     setSyncing(true); setSyncResult(null); setSyncPlan(null);
     try { setSyncPlan(await buildSyncPlan(selected, new AbortController().signal)); }
-    catch (failure) { setSyncResult({ kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
+    catch (failure) { setSyncResult({ sourceInstance: selected, kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
     finally { setSyncing(false); }
   };
 
@@ -47,9 +47,9 @@ export function SourcesPage() {
     try {
       const controller = new AbortController();
       const token = await prepareSync(selected, syncPlan.digest, controller.signal);
-      setSyncResult({ kind: 'success', message: await applySync(selected, token, controller.signal) });
+      setSyncResult({ sourceInstance: selected, kind: 'success', message: await applySync(selected, token, controller.signal) });
       setSyncPlan(null);
-    } catch (failure) { setSyncResult({ kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
+    } catch (failure) { setSyncResult({ sourceInstance: selected, kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
     finally { setSyncing(false); }
   };
 
@@ -83,7 +83,7 @@ export function SourcesPage() {
         Editing is not available.</p></div>
       <button disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button>
     </div>
-    {selected && <button onClick={() => { setSelected(null); setDiscovery(null); setSyncPlan(null); }}>Back to sources</button>}
+    {selected && <button onClick={() => { setSelected(null); setDiscovery(null); setSyncPlan(null); setSyncResult(null); }}>Back to sources</button>}
     {loading && <p role="status">Loading source configuration…</p>}
     {!loading && error && <p role="alert" className="source-error">{error}</p>}
     {!loading && !error && !selected && (sources.length === 0
@@ -92,7 +92,7 @@ export function SourcesPage() {
         <th>Source instance</th><th>Type</th><th>Address</th><th>Site</th><th>Cluster</th>
         <th>Enabled</th><th>Automatic sync</th><th>Interval</th><th>Status</th>
       </tr></thead><tbody>{sources.map((source) => <tr key={source.source_instance}>
-        <td><button onClick={() => setSelected(source.source_instance)}>{source.source_instance}</button></td>
+        <td><button onClick={() => { setSyncResult(null); setSelected(source.source_instance); }}>{source.source_instance}</button></td>
         <td>{source.type}</td><td>{source.address}</td><td>{source.site_slug}</td><td>{source.cluster_name}</td>
         <td>{source.enabled ? 'Yes' : 'No'}</td><td>{source.sync_enabled ? 'Configured on' : 'Configured off'}</td>
         <td>{source.sync_interval_seconds}s</td><td>{source.status.replaceAll('_', ' ')}</td>
@@ -119,8 +119,8 @@ export function SourcesPage() {
         <div className="summary-grid">{actions(syncPlan).map(([action, count]) => <div key={action}><strong>{action.replaceAll('_', ' ')}</strong> <span>{count}</span></div>)}</div>
         <div className="source-table"><table><thead><tr><th>Kind</th><th>Name</th><th>Action</th><th>Reason</th></tr></thead><tbody>{syncPlan.items.map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.action}</td><td>{item.reason}</td></tr>)}</tbody></table></div>
         <button disabled={!syncPlan.apply_allowed || syncing} onClick={syncNow}>Sync Now</button></>}
-      {syncResult && <p role={syncResult.kind === 'error' ? 'alert' : 'status'}
-        className={syncResult.kind === 'error' ? 'source-error' : undefined}>{syncResult.message}</p>}
+      {visibleSyncResult && <p role={visibleSyncResult.kind === 'error' ? 'alert' : 'status'}
+        className={visibleSyncResult.kind === 'error' ? 'source-error' : undefined}>{visibleSyncResult.message}</p>}
     </section></>}
     <p className="intro">Flags and interval describe registry configuration, not scheduler execution or source health.
       The existing systemd scheduler is unchanged.</p>

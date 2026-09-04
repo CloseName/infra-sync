@@ -1,6 +1,11 @@
 export type SyncAction = 'CREATE' | 'UPDATE' | 'NO_CHANGE' | 'REVIEW_REQUIRED' | 'BLOCKED' | 'IGNORED' | 'UNSUPPORTED' | 'RETAIN_ONLY';
 export interface SyncPlanItem { object_kind: string; external_id: string; name: string; action: SyncAction; reason_code: string; reason: string; matched_object_id: string | number | null; before: unknown[][]; after: unknown[][]; }
 export interface SyncPlan { source_instance: string; source_type: 'proxmox' | 'esxi'; source_fingerprint: string; target_fingerprint: string; provider_fingerprint: string; netbox_fingerprint: string; schema_version: number; planner_version: string; items: SyncPlanItem[]; apply_allowed: boolean; digest: string; }
+export interface ManualSyncResult { sourceInstance: string; kind: 'success' | 'error'; message: string; }
+
+export function resultForSource(result: ManualSyncResult | null, sourceInstance: string | null): ManualSyncResult | null {
+  return result?.sourceInstance === sourceInstance ? result : null;
+}
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const actions = ['CREATE', 'UPDATE', 'NO_CHANGE', 'REVIEW_REQUIRED', 'BLOCKED', 'IGNORED', 'UNSUPPORTED', 'RETAIN_ONLY'];

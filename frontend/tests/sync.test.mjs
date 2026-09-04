@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { applySync, buildSyncPlan, prepareSync } from '../src/api/sync.ts';
+import { applySync, buildSyncPlan, prepareSync, resultForSource } from '../src/api/sync.ts';
 
 const plan = { source_instance: 'pve-test', source_type: 'proxmox',
   source_fingerprint: 'a', target_fingerprint: 'b', provider_fingerprint: 'c', netbox_fingerprint: 'd',
@@ -64,11 +64,27 @@ test('manual sync success remains explicit and unknown failures are generic', as
 
 test('sync result remains rendered after busy state releases the button', () => {
   const page = readFileSync(new URL('../src/pages/SourcesPage.tsx', import.meta.url), 'utf8');
-  assert.ok(page.includes("setSyncResult({ kind: 'error'"));
-  assert.ok(page.includes("setSyncResult({ kind: 'success'"));
+  assert.ok(page.includes("setSyncResult({ sourceInstance: selected, kind: 'error'"));
+  assert.ok(page.includes("setSyncResult({ sourceInstance: selected, kind: 'success'"));
   assert.ok(page.includes('finally { setSyncing(false); }'));
-  assert.ok(page.includes("role={syncResult.kind === 'error' ? 'alert' : 'status'}"));
+  assert.ok(page.includes("role={visibleSyncResult.kind === 'error' ? 'alert' : 'status'}"));
   assert.ok(!page.includes('finally { setSyncResult(null)'));
+});
+
+test('manual sync outcomes are visible only for their source instance', () => {
+  const lockedA = { sourceInstance: 'source-a', kind: 'error',
+    message: 'Manual sync could not start: another sync is already running. No changes were made.' };
+  const successB = { sourceInstance: 'source-b', kind: 'success', message: 'SUCCEEDED' };
+  assert.equal(resultForSource(lockedA, 'source-a'), lockedA);
+  assert.equal(resultForSource(lockedA, 'source-b'), null);
+  assert.equal(resultForSource(successB, 'source-a'), null);
+  assert.equal(resultForSource(successB, 'source-b'), successB);
+});
+
+test('source navigation explicitly clears any previous manual sync outcome', () => {
+  const page = readFileSync(new URL('../src/pages/SourcesPage.tsx', import.meta.url), 'utf8');
+  assert.ok(page.includes('setSelected(null); setDiscovery(null); setSyncPlan(null); setSyncResult(null);'));
+  assert.ok(page.includes('setSyncResult(null); setSelected(source.source_instance);'));
 });
 
 test('application header uses a phase-neutral label', () => {
