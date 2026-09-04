@@ -541,5 +541,13 @@ for Site, Device Role, Platform, Device Type, Cluster Type, Cluster, Prefix and 
 MAC Address and IP Address. Do not grant `delete` on any model. Validate the precise NetBox
 permission codenames against the deployed NetBox version before enabling the worker.
 
+The production systemd unit serializes the operator-managed registry-all wrapper and the manual
+worker through the host file `/run/infra-sync/apply.lock`. Deploy the tracked unit to
+`/etc/systemd/system/infra-netbox-sync.service` and reload systemd before enabling WEB-5; changing
+only `scripts/run-full-sync.sh` does not affect an installed unit that starts
+`/opt/infra-sync/run-full-sync-registry.sh`. The wrapper remains host-managed and is not stored in
+this repository. Only `/run/infra-sync` is mounted into the worker; broad `/run`, Docker socket,
+and secret-broker socket mounts are forbidden.
+
 An enabled source remains manually eligible when `sync_enabled=false`; this flag continues to
 control automatic registry-all scheduling only. Manual synchronization never changes either flag.

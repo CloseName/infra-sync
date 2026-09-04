@@ -29,8 +29,10 @@ authority. See [WEB-1](web.md) for the implemented boundary and startup commands
   `/run/secrets/infra-sync`. LegacyFileSecretResolver supports old absolute
   paths. NetBox credentials still use the existing bootstrap environment/file
   reader. No new secret provider is activated.
-- `scripts/run-full-sync.sh` uses flock, existing lock path and Compose full
-  apply with FULL_WRITE. systemd invokes it every 10 minutes.
+- `scripts/run-full-sync.sh` uses flock, the shared lock path and Compose full
+  apply with FULL_WRITE. The production systemd unit independently acquires the
+  same lock before invoking the operator-managed registry-all wrapper at
+  `/opt/infra-sync/run-full-sync-registry.sh` every 10 minutes.
 - Compose currently builds one CLI image, mounts secrets, and joins external
   `netbox_default`. It does NOT declare PostgreSQL or registry-all environment.
   The reported live registry-all setup therefore includes operator configuration

@@ -6,7 +6,8 @@ After=network-online.target docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/infra-sync/src
-ExecStart=/opt/infra-sync/src/scripts/run-full-sync.sh
+ExecStartPre=/usr/bin/install -d -m 0750 /run/infra-sync
+ExecStart=/usr/bin/flock -n /run/infra-sync/apply.lock /opt/infra-sync/run-full-sync-registry.sh
 
 User=root
 Group=root
