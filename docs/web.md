@@ -517,3 +517,29 @@ Mount only the legacy source-secret directory and WEB-3 source-secret directory,
 the `web` and `discovery` profiles together. Smoke-check health and a protected discovery request,
 then verify NetBox audit logs contain no POST/PATCH/PUT/DELETE. Never use an apply-capable NetBox
 token for this worker.
+# WEB-5 manual synchronization boundary
+
+Manual synchronization uses a dedicated local Unix-socket apply worker. The API never receives
+source credentials, a NetBox apply token, Docker access, systemd access, or a registry writer role.
+The worker accepts only `prepare` and `apply` operations for one validated `source_instance`.
+
+The worker registry role is read-only:
+
+```sql
+GRANT CONNECT ON DATABASE infra_sync TO infra_sync_apply_registry_reader;
+GRANT USAGE ON SCHEMA infra_sync TO infra_sync_apply_registry_reader;
+GRANT SELECT ON TABLE infra_sync.schema_meta, infra_sync.sources
+TO infra_sync_apply_registry_reader;
+```
+
+Do not grant this role `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, sequence access, DDL, or schema
+ownership. The existing registration role remains separate.
+
+Create a separate NetBox token for WEB-5. Based on the guarded executor paths it needs `view`
+for Site, Device Role, Platform, Device Type, Cluster Type, Cluster, Prefix and VLAN; and
+`view`, `add`, and `change` for Device, Device Interface, Virtual Machine, VM Interface,
+MAC Address and IP Address. Do not grant `delete` on any model. Validate the precise NetBox
+permission codenames against the deployed NetBox version before enabling the worker.
+
+An enabled source remains manually eligible when `sync_enabled=false`; this flag continues to
+control automatic registry-all scheduling only. Manual synchronization never changes either flag.

@@ -3,9 +3,11 @@ set -eu
 
 cd /opt/infra-sync/src
 
+/usr/bin/install -d -m 0750 /run/infra-sync
+
 exec /usr/bin/flock \
   -n \
-  /run/infra-netbox-sync.lock \
+  /run/infra-sync/apply.lock \
   /usr/bin/docker compose \
     -f compose.yml \
     -f compose.apply.yml \

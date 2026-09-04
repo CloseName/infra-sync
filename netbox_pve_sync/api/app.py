@@ -1,4 +1,5 @@
-"""Read-only FastAPI factory and transport boundaries."""
+"""FastAPI factory with explicit read, registration, discovery, and sync boundaries."""
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
 
 import json
 import logging
@@ -22,8 +23,11 @@ from .database import PostgresHealthProbe
 from .dto import ErrorDTO, ErrorDetailDTO, LivenessDTO, SystemHealthDTO, VersionDTO
 from .settings import ApiSettings, application_version
 from .source_reader import PostgresSourceReader
-from .dto import DiscoveryResultDTO, SourceDTO, SourceListDTO
+from .dto import (ApplyRequestDTO, ApplyResultDTO, ConfirmationDTO, ConfirmationRequestDTO,
+                  DiscoveryResultDTO, SourceDTO, SourceListDTO, SyncPlanDTO)
+from .dto import SyncPlanRequestDTO
 from .discovery_client import DiscoveryRequestError, DiscoveryWorkerClient
+from .apply_client import ApplyRequestError, ApplyWorkerClient
 from .onboarding_dto import ConnectionRequest, ConnectionResult, RegistrationRequest
 from .onboarding_dto import CancellationRequest, CancellationResult
 from .onboarding_adapters import BrokerSecretStore, RegistrationRegistry, test_esxi, test_proxmox
@@ -84,6 +88,16 @@ def _install_boundaries(app, settings):
         status, message = errors.get(exc.code, errors['DISCOVERY_UNAVAILABLE'])
         return _error(request, status, exc.code, message)
 
+    @app.exception_handler(ApplyRequestError)
+    async def apply_error(request, exc):
+        statuses = {
+            'SOURCE_NOT_FOUND': 404, 'SOURCE_DISABLED': 409, 'PLAN_BLOCKED': 409,
+            'PLAN_STALE': 409, 'CONFIRMATION_INVALID': 409,
+            'CONFIRMATION_EXPIRED': 409, 'CONFIRMATION_SOURCE_MISMATCH': 409,
+            'APPLY_LOCKED': 409, 'OUTCOME_UNCERTAIN': 503,
+        }
+        return _error(request, statuses.get(exc.code, 503), exc.code, 'Manual sync request failed')
+
     @app.middleware('http')
     async def request_boundary(request: Request, call_next):
         # Never trust/re-emit client correlation headers, URLs, query or body.
@@ -96,7 +110,8 @@ def _install_boundaries(app, settings):
                         '/api/v1/sources/cancel-onboarding',
                     ) or (
                         request.url.path.startswith('/api/v1/sources/')
-                        and request.url.path.endswith('/discovery')
+                        and request.url.path.endswith(('/discovery', '/sync-plan',
+                                                       '/sync-confirmations', '/sync'))
                     )):
                 origin = urlsplit(request.headers.get('origin', ''))
                 host = request.headers.get('host', '')
@@ -145,7 +160,7 @@ def _install_boundaries(app, settings):
 
 
 def create_app(settings=None, service=None, source_service=None, onboarding_service=None,
-               discovery_client=None):
+               discovery_client=None, apply_client=None):
     """Construct without DB access; all environment reading is confined to bootstrap."""
     if not LOGGER.handlers:
         LOGGER.addHandler(logging.StreamHandler())
@@ -162,6 +177,7 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
         BrokerSecretStore(settings.broker_socket),
     )
     discovery_client = discovery_client or DiscoveryWorkerClient(settings.discovery_socket)
+    apply_client = apply_client or ApplyWorkerClient(settings.apply_socket)
     app = FastAPI(title='Infra Sync', version=application_version(),
                   docs_url=None, redoc_url=None, openapi_url=None, debug=False)
     _install_boundaries(app, settings)
@@ -193,6 +209,23 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
         if result.source_instance != source_instance:
             raise DiscoveryRequestError('DISCOVERY_RESPONSE_INVALID')
         return result
+
+    @router.post('/sources/{source_instance}/sync-plan', response_model=SyncPlanDTO)
+    def sync_plan(source_instance: str, _request: SyncPlanRequestDTO):
+        result = SyncPlanDTO.from_worker(discovery_client.plan(source_instance))
+        if result.source_instance != source_instance:
+            raise DiscoveryRequestError('DISCOVERY_RESPONSE_INVALID')
+        return result
+
+    @router.post('/sources/{source_instance}/sync-confirmations', response_model=ConfirmationDTO)
+    def prepare_sync(source_instance: str, request: ConfirmationRequestDTO):
+        result = apply_client.prepare(source_instance, request.plan_digest)
+        return ConfirmationDTO.model_validate(result)
+
+    @router.post('/sources/{source_instance}/sync', response_model=ApplyResultDTO)
+    def apply_sync(source_instance: str, request: ApplyRequestDTO):
+        return ApplyResultDTO.model_validate(apply_client.apply(
+            source_instance, request.confirmation_token))
 
     @router.post('/sources/test-connection', response_model=ConnectionResult)
     def connection_test(request: ConnectionRequest):

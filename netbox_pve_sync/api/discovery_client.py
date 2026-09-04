@@ -20,13 +20,12 @@ class DiscoveryWorkerClient:
         self._socket_path = socket_path
         self._connector = connector
 
-    def discover(self, source_instance):
-        """Request and validate one ephemeral discovery result."""
+    def _request(self, source_instance, operation):
         if not SOURCE_INSTANCE_PATTERN.fullmatch(source_instance):
             raise DiscoveryRequestError('SOURCE_NOT_FOUND')
         if not self._socket_path:
             raise DiscoveryRequestError('DISCOVERY_UNAVAILABLE')
-        request = json.dumps({'source_instance': source_instance}).encode()
+        request = json.dumps({'source_instance': source_instance, 'operation': operation}).encode()
         try:
             with self._connector(socket.AF_UNIX, socket.SOCK_STREAM) as connection:  # pylint: disable=no-member
                 connection.settimeout(125)
@@ -57,3 +56,11 @@ class DiscoveryWorkerClient:
         if not isinstance(response.get('result'), dict):
             raise DiscoveryRequestError('DISCOVERY_RESPONSE_INVALID')
         return response['result']
+
+    def discover(self, source_instance):
+        """Request one ephemeral discovery result."""
+        return self._request(source_instance, 'discover')
+
+    def plan(self, source_instance):
+        """Request one canonical read-only sync plan."""
+        return self._request(source_instance, 'plan')

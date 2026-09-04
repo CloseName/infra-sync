@@ -25,11 +25,12 @@ test('discovery client rejects malformed result and reports stable errors', asyn
   await assert.rejects(runDiscovery('pve-test', new AbortController().signal), /Disabled/);
 });
 
-test('source detail exposes review states and no apply control', () => {
+test('source detail keeps discovery review separate from explicit sync controls', () => {
   const page = readFileSync(new URL('../src/pages/SourcesPage.tsx', import.meta.url), 'utf8');
   for (const text of ['Run discovery', 'Running read-only discovery', 'role="alert"',
     'Classification', 'Object kind', 'reason_code', 'summary-grid']) assert.ok(page.includes(text));
-  assert.ok(!page.includes('Sync Now'));
+  assert.ok(page.includes('Build plan'));
+  assert.ok(page.includes('Sync Now'));
   assert.ok(!page.includes('Apply changes'));
   assert.ok(classificationsVisibleInClient());
 });

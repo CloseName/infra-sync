@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..application.health import HealthStatus
 from ..application.observability import ErrorCode
@@ -141,3 +141,72 @@ class DiscoveryResultDTO(PublicModel):
     def from_worker(cls, value):
         """Validate every allowlisted worker field before public serialization."""
         return cls.model_validate(value)
+
+
+class SyncPlanItemDTO(PublicModel):
+    """Exact allowlisted action in a canonical sync plan."""
+
+    object_kind: str
+    external_id: str
+    name: str
+    action: Literal['CREATE', 'UPDATE', 'NO_CHANGE', 'REVIEW_REQUIRED', 'BLOCKED',
+                    'IGNORED', 'UNSUPPORTED', 'RETAIN_ONLY']
+    reason_code: str
+    reason: str
+    matched_object_id: int | str | None = None
+    before: list[list[object]]
+    after: list[list[object]]
+
+
+class SyncPlanDTO(PublicModel):
+    """Secret-free plan returned by the read-only worker."""
+
+    source_instance: str
+    source_type: Literal['proxmox', 'esxi']
+    source_fingerprint: str
+    target_fingerprint: str
+    provider_fingerprint: str
+    netbox_fingerprint: str
+    schema_version: int
+    planner_version: str
+    items: list[SyncPlanItemDTO]
+    apply_allowed: bool
+    digest: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+    @classmethod
+    def from_worker(cls, value):
+        """Exclude the internal registry ID while retaining its binding inside the digest."""
+        if not isinstance(value, dict):
+            return cls.model_validate(value)
+        return cls.model_validate({key: item for key, item in value.items() if key != 'source_id'})
+
+
+class SyncPlanRequestDTO(PublicModel):
+    """An intentionally empty request: the browser cannot select scope or operations."""
+
+
+class ConfirmationRequestDTO(PublicModel):
+    """The browser may identify an exact plan but cannot submit operations."""
+
+    plan_digest: str = Field(pattern=r'^[a-f0-9]{64}$')
+    confirmed: Literal[True]
+
+
+class ConfirmationDTO(PublicModel):
+    """Short-lived opaque capability; its value is never logged."""
+
+    confirmation_token: str = Field(pattern=r'^[a-f0-9]{64}$')
+    expires_in_seconds: int = 300
+
+
+class ApplyRequestDTO(PublicModel):
+    """Only a worker-issued capability crosses the API boundary."""
+
+    confirmation_token: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+
+class ApplyResultDTO(PublicModel):
+    """Explicit non-transactional synchronization result."""
+
+    status: Literal['SUCCEEDED', 'FAILED_BEFORE_WRITE', 'PARTIALLY_APPLIED', 'OUTCOME_UNCERTAIN']
+    plan_digest: str = Field(pattern=r'^[a-f0-9]{64}$')

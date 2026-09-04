@@ -27,7 +27,7 @@ class Connection:
 
 def test_worker_accepts_only_source_instance():
     connection = Connection(json.dumps({'source_instance': 'pve-test'}).encode())
-    assert _receive(connection) == 'pve-test'
+    assert _receive(connection) == ('pve-test', 'discover')
     assert connection.timeout == 5
 
 

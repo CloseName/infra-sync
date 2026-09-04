@@ -90,7 +90,7 @@ class DiscoverySupervisor:
             raise WorkerError('SOURCE_DISABLED')
         return record.config
 
-    def run(self, instance):
+    def run(self, instance, operation='discover'):
         """Resolve one source and execute its isolated child."""
         from .secret_resolver import FileSecretResolver, SecretResolutionError
         try:
@@ -108,6 +108,7 @@ class DiscoverySupervisor:
         payload = json.dumps({
             'source': _config_payload(config), 'credentials': asdict(credentials),
             'netbox_url': self._netbox_url, 'netbox_token': netbox_token,
+            'operation': operation,
         }).encode()
         try:
             with self._popen([sys.executable, '-B', '-m', 'netbox_pve_sync.discovery_worker', '--child'],
@@ -159,6 +160,8 @@ def execute_child(payload):
     import pynetbox
     from proxmoxer import ProxmoxAPI
     from .application.discovery_review import build_esxi_review, build_proxmox_review
+    from .application.planning_netbox import PlanningNetBox
+    from .application.sync_plan import plan_from_mutations, plan_from_review
     from .esxi_adoption import build_esxi_adoption_plan
     from .esxi_client import EsxiClient
     from .esxi_discovery import discover_hosts as discover_esxi
@@ -172,7 +175,8 @@ def execute_child(payload):
         token_name = credentials['token_id'].split('!', 1)[-1]
         provider = ProxmoxAPI(config.address, user=credentials['username'], token_name=token_name,
                               token_value=credentials['token_secret'], verify_ssl=config.verify_ssl)
-        review = build_proxmox_review(nb_api, discover_proxmox(provider, config), config)
+        hosts = discover_proxmox(provider, config)
+        review = build_proxmox_review(nb_api, hosts, config)
     elif config.source_type == 'esxi':
         class Resolved:
             """Ephemeral already-resolved ESXi password adapter."""
@@ -184,6 +188,19 @@ def execute_child(payload):
         review = build_esxi_review(build_esxi_adoption_plan(nb_api, hosts, config), config)
     else:
         raise WorkerError('DISCOVERY_FAILED')
+    if payload.get('operation') == 'plan':
+        from .esxi_runtime import execute_esxi_runtime
+        from .netbox_full_apply import apply_full_sync
+        review_plan = plan_from_review(review, config)
+        if not review_plan.apply_allowed:
+            return {**review_plan.canonical_dict(), 'digest': review_plan.digest}
+        planning_api = PlanningNetBox(nb_api)
+        if config.source_type == 'proxmox':
+            apply_full_sync(planning_api, hosts, config.target, confirmed=True)
+        else:
+            execute_esxi_runtime(planning_api, hosts, config, confirmed=True)
+        plan = plan_from_mutations(review, config, planning_api.mutations)
+        return {**plan.canonical_dict(), 'digest': plan.digest}
     return asdict(review)
 
 
@@ -211,10 +228,11 @@ def _receive(connection):
         request = json.loads(data)
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise WorkerError('REQUEST_INVALID') from None
-    if set(request) != {'source_instance'} or not SOURCE_INSTANCE_PATTERN.fullmatch(
-            request.get('source_instance', '')):
+    if set(request) not in ({'source_instance'}, {'source_instance', 'operation'}) \
+            or request.get('operation', 'discover') not in ('discover', 'plan') \
+            or not SOURCE_INSTANCE_PATTERN.fullmatch(request.get('source_instance', '')):
         raise WorkerError('REQUEST_INVALID')
-    return request['source_instance']
+    return request['source_instance'], request.get('operation', 'discover')
 
 
 def _authorize_peer(connection, allowed_uid):
@@ -251,7 +269,8 @@ def serve(socket_path, supervisor, allowed_uid):
             with connection:
                 try:
                     _authorize_peer(connection, allowed_uid)
-                    result = {'ok': True, 'result': supervisor.run(_receive(connection))}
+                    instance, operation = _receive(connection)
+                    result = {'ok': True, 'result': supervisor.run(instance, operation)}
                 except WorkerError as exc:
                     result = {'ok': False, 'error': exc.code}
                 except Exception:  # pylint: disable=broad-exception-caught

@@ -3,6 +3,8 @@ import { fetchSource, fetchSources } from '../api/sources';
 import type { Source } from '../api/sources';
 import { runDiscovery } from '../api/discovery';
 import type { DiscoveryResult } from '../api/discovery';
+import { applySync, buildSyncPlan, prepareSync } from '../api/sync';
+import type { SyncPlan } from '../api/sync';
 
 const detailLabels: Record<keyof Source, string> = {
   source_instance: 'Source instance', type: 'Type', name: 'Display name', address: 'Address',
@@ -24,6 +26,29 @@ export function SourcesPage() {
   const [discoveryError, setDiscoveryError] = useState('');
   const [classFilter, setClassFilter] = useState('ALL');
   const [kindFilter, setKindFilter] = useState('ALL');
+  const [syncPlan, setSyncPlan] = useState<SyncPlan | null>(null);
+  const [syncMessage, setSyncMessage] = useState('');
+  const [syncing, setSyncing] = useState(false);
+
+  const buildPlan = async () => {
+    if (!selected) return;
+    setSyncing(true); setSyncMessage(''); setSyncPlan(null);
+    try { setSyncPlan(await buildSyncPlan(selected, new AbortController().signal)); }
+    catch (failure) { setSyncMessage(failure instanceof Error ? failure.message : 'Plan failed.'); }
+    finally { setSyncing(false); }
+  };
+
+  const syncNow = async () => {
+    if (!selected || !syncPlan || !window.confirm(`Apply the exact reviewed plan for ${selected}?`)) return;
+    setSyncing(true); setSyncMessage('');
+    try {
+      const controller = new AbortController();
+      const token = await prepareSync(selected, syncPlan.digest, controller.signal);
+      setSyncMessage(await applySync(selected, token, controller.signal));
+      setSyncPlan(null);
+    } catch (failure) { setSyncMessage(failure instanceof Error ? failure.message : 'Sync failed.'); }
+    finally { setSyncing(false); }
+  };
 
   const discover = async () => {
     if (!selected) return;
@@ -55,7 +80,7 @@ export function SourcesPage() {
         Editing is not available.</p></div>
       <button disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button>
     </div>
-    {selected && <button onClick={() => { setSelected(null); setDiscovery(null); }}>Back to sources</button>}
+    {selected && <button onClick={() => { setSelected(null); setDiscovery(null); setSyncPlan(null); }}>Back to sources</button>}
     {loading && <p role="status">Loading source configuration…</p>}
     {!loading && error && <p role="alert" className="source-error">{error}</p>}
     {!loading && !error && !selected && (sources.length === 0
@@ -83,8 +108,21 @@ export function SourcesPage() {
         <div className="filters"><label>Classification <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.classification))).map((value) => <option key={value}>{value}</option>)}</select></label>
           <label>Object kind <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.object_kind))).map((value) => <option key={value}>{value}</option>)}</select></label></div>
         <div className="source-table"><table><thead><tr><th>Kind</th><th>Name</th><th>Classification</th><th>Reason</th><th>Future action</th><th>NetBox match</th></tr></thead><tbody>{discovery.items.filter((item) => (classFilter === 'ALL' || item.classification === classFilter) && (kindFilter === 'ALL' || item.object_kind === kindFilter)).map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.classification.replaceAll('_', ' ')}</td><td>{item.reason} ({item.reason_code})</td><td>{item.future_action}</td><td>{item.matched_object_name || '—'}</td></tr>)}</tbody></table></div></>}
+    </section><section className="discovery-review"><h2>Plan / Sync Now</h2>
+      <p>Build a read-only exact plan, review it, then explicitly confirm one source.</p>
+      <button disabled={syncing || !detail.enabled} onClick={buildPlan}>Build plan</button>
+      {syncing && <p role="status">Checking the current plan…</p>}
+      {syncMessage && <p role="alert">{syncMessage}</p>}
+      {syncPlan && <><p>Plan digest: <code>{syncPlan.digest}</code></p>
+        <div className="summary-grid">{actions(syncPlan).map(([action, count]) => <div key={action}><strong>{action.replaceAll('_', ' ')}</strong> <span>{count}</span></div>)}</div>
+        <div className="source-table"><table><thead><tr><th>Kind</th><th>Name</th><th>Action</th><th>Reason</th></tr></thead><tbody>{syncPlan.items.map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.action}</td><td>{item.reason}</td></tr>)}</tbody></table></div>
+        <button disabled={!syncPlan.apply_allowed || syncing} onClick={syncNow}>Sync Now</button></>}
     </section></>}
     <p className="intro">Flags and interval describe registry configuration, not scheduler execution or source health.
       The existing systemd scheduler is unchanged.</p>
   </main>;
+}
+
+function actions(plan: SyncPlan): [string, number][] {
+  return Array.from(new Set(plan.items.map((item) => item.action))).map((action) => [action, plan.items.filter((item) => item.action === action).length]);
 }
