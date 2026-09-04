@@ -3,8 +3,11 @@ import { fetchSource, fetchSources } from '../api/sources';
 import type { Source } from '../api/sources';
 import { runDiscovery } from '../api/discovery';
 import type { DiscoveryResult } from '../api/discovery';
-import { applySync, buildSyncPlan, prepareSync } from '../api/sync';
+import { applySync, buildSyncPlan, ManualSyncRequestError, prepareSync } from '../api/sync';
 import type { SyncPlan } from '../api/sync';
+
+interface SyncResult { kind: 'success' | 'error'; message: string; }
+const genericSyncFailure = 'Manual sync request failed. No automatic retry was performed.';
 
 const detailLabels: Record<keyof Source, string> = {
   source_instance: 'Source instance', type: 'Type', name: 'Display name', address: 'Address',
@@ -27,26 +30,26 @@ export function SourcesPage() {
   const [classFilter, setClassFilter] = useState('ALL');
   const [kindFilter, setKindFilter] = useState('ALL');
   const [syncPlan, setSyncPlan] = useState<SyncPlan | null>(null);
-  const [syncMessage, setSyncMessage] = useState('');
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncing, setSyncing] = useState(false);
 
   const buildPlan = async () => {
     if (!selected) return;
-    setSyncing(true); setSyncMessage(''); setSyncPlan(null);
+    setSyncing(true); setSyncResult(null); setSyncPlan(null);
     try { setSyncPlan(await buildSyncPlan(selected, new AbortController().signal)); }
-    catch (failure) { setSyncMessage(failure instanceof Error ? failure.message : 'Plan failed.'); }
+    catch (failure) { setSyncResult({ kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
     finally { setSyncing(false); }
   };
 
   const syncNow = async () => {
     if (!selected || !syncPlan || !window.confirm(`Apply the exact reviewed plan for ${selected}?`)) return;
-    setSyncing(true); setSyncMessage('');
+    setSyncing(true); setSyncResult(null);
     try {
       const controller = new AbortController();
       const token = await prepareSync(selected, syncPlan.digest, controller.signal);
-      setSyncMessage(await applySync(selected, token, controller.signal));
+      setSyncResult({ kind: 'success', message: await applySync(selected, token, controller.signal) });
       setSyncPlan(null);
-    } catch (failure) { setSyncMessage(failure instanceof Error ? failure.message : 'Sync failed.'); }
+    } catch (failure) { setSyncResult({ kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
     finally { setSyncing(false); }
   };
 
@@ -112,11 +115,12 @@ export function SourcesPage() {
       <p>Build a read-only exact plan, review it, then explicitly confirm one source.</p>
       <button disabled={syncing || !detail.enabled} onClick={buildPlan}>Build plan</button>
       {syncing && <p role="status">Checking the current plan…</p>}
-      {syncMessage && <p role="alert">{syncMessage}</p>}
       {syncPlan && <><p>Plan digest: <code>{syncPlan.digest}</code></p>
         <div className="summary-grid">{actions(syncPlan).map(([action, count]) => <div key={action}><strong>{action.replaceAll('_', ' ')}</strong> <span>{count}</span></div>)}</div>
         <div className="source-table"><table><thead><tr><th>Kind</th><th>Name</th><th>Action</th><th>Reason</th></tr></thead><tbody>{syncPlan.items.map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.action}</td><td>{item.reason}</td></tr>)}</tbody></table></div>
         <button disabled={!syncPlan.apply_allowed || syncing} onClick={syncNow}>Sync Now</button></>}
+      {syncResult && <p role={syncResult.kind === 'error' ? 'alert' : 'status'}
+        className={syncResult.kind === 'error' ? 'source-error' : undefined}>{syncResult.message}</p>}
     </section></>}
     <p className="intro">Flags and interval describe registry configuration, not scheduler execution or source health.
       The existing systemd scheduler is unchanged.</p>

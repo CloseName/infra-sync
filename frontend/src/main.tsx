@@ -9,7 +9,7 @@ function App() {
   const [page, setPage] = useState<'health' | 'sources' | 'add'>('health');
   return <>
     <header className="topbar"><a className="brand" href="/">Infra<span>Sync</span></a>
-      <span className="mode">SOURCE ONBOARDING · WEB-3</span></header>
+      <span className="mode">INFRA SYNC · SOURCE CONTROL</span></header>
     <nav aria-label="Main navigation" className="navigation">
       <button aria-pressed={page === 'health'} onClick={() => setPage('health')}>System Health</button>
       <button aria-pressed={page === 'sources'} onClick={() => setPage('sources')}>Sources</button>

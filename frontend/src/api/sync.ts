@@ -4,6 +4,34 @@ export interface SyncPlan { source_instance: string; source_type: 'proxmox' | 'e
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const actions = ['CREATE', 'UPDATE', 'NO_CHANGE', 'REVIEW_REQUIRED', 'BLOCKED', 'IGNORED', 'UNSUPPORTED', 'RETAIN_ONLY'];
+const genericFailure = 'Manual sync request failed. No automatic retry was performed.';
+const errorMessages = {
+  APPLY_LOCKED: 'Manual sync could not start: another sync is already running. No changes were made.',
+  PLAN_STALE: 'The sync plan is no longer current. Build a new plan before syncing.',
+  CONFIRMATION_EXPIRED: 'Sync confirmation expired. Build or confirm the plan again.',
+  CONFIRMATION_INVALID: 'Sync confirmation is no longer valid. Confirm the plan again.',
+  CONFIRMATION_SOURCE_MISMATCH: 'Sync confirmation does not match this source. Build a new plan.',
+  PLAN_BLOCKED: 'This plan contains blocking conditions and cannot be applied.',
+  FAILED_BEFORE_WRITE: 'Manual sync failed before any changes were written.',
+  OUTCOME_UNCERTAIN: 'Manual sync stopped after the write phase began. The final NetBox state may be uncertain; review the source before retrying.',
+} as const;
+type ManualSyncErrorCode = keyof typeof errorMessages;
+
+export class ManualSyncRequestError extends Error {
+  constructor(message = genericFailure) { super(message); this.name = 'ManualSyncRequestError'; }
+}
+
+async function errorFor(response: Response): Promise<ManualSyncRequestError> {
+  try {
+    const value: unknown = await response.json();
+    const code = record(value) && record(value.error) && typeof value.error.code === 'string'
+      ? value.error.code : '';
+    return new ManualSyncRequestError(
+      Object.prototype.hasOwnProperty.call(errorMessages, code)
+        ? errorMessages[code as ManualSyncErrorCode] : genericFailure,
+    );
+  } catch { return new ManualSyncRequestError(); }
+}
 const validPlan = (value: unknown, instance: string): value is SyncPlan => record(value)
   && value.source_instance === instance && (value.source_type === 'proxmox' || value.source_type === 'esxi')
   && typeof value.digest === 'string' && /^[a-f0-9]{64}$/.test(value.digest)
@@ -11,26 +39,34 @@ const validPlan = (value: unknown, instance: string): value is SyncPlan => recor
   && typeof value.schema_version === 'number' && typeof value.apply_allowed === 'boolean'
   && Array.isArray(value.items) && value.items.every((item) => record(item) && typeof item.action === 'string' && actions.includes(item.action) && typeof item.name === 'string' && typeof item.object_kind === 'string' && typeof item.external_id === 'string' && typeof item.reason === 'string' && typeof item.reason_code === 'string' && Array.isArray(item.before) && Array.isArray(item.after));
 
-const protectedPost = async (path: string, body: object, signal: AbortSignal) => fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Infra-Sync-CSRF': 'same-origin' }, credentials: 'same-origin', cache: 'no-store', signal, body: JSON.stringify(body) });
+const protectedPost = async (path: string, body: object, signal: AbortSignal) => {
+  try { return await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Infra-Sync-CSRF': 'same-origin' }, credentials: 'same-origin', cache: 'no-store', signal, body: JSON.stringify(body) }); }
+  catch { throw new ManualSyncRequestError(); }
+};
 
 export async function buildSyncPlan(instance: string, signal: AbortSignal): Promise<SyncPlan> {
   const response = await protectedPost(`/api/v1/sources/${encodeURIComponent(instance)}/sync-plan`, {}, signal);
-  if (!response.ok) throw new Error('Sync plan could not be built. No changes were made.');
-  const value: unknown = await response.json();
-  if (!validPlan(value, instance)) throw new Error('Sync plan returned malformed data.');
+  if (!response.ok) throw await errorFor(response);
+  let value: unknown;
+  try { value = await response.json(); } catch { throw new ManualSyncRequestError(); }
+  if (!validPlan(value, instance)) throw new ManualSyncRequestError('Sync plan returned malformed data.');
   return value;
 }
 
 export async function prepareSync(instance: string, digest: string, signal: AbortSignal): Promise<string> {
   const response = await protectedPost(`/api/v1/sources/${encodeURIComponent(instance)}/sync-confirmations`, { plan_digest: digest, confirmed: true }, signal);
-  const value: unknown = await response.json();
-  if (!response.ok || !record(value) || typeof value.confirmation_token !== 'string' || !/^[a-f0-9]{64}$/.test(value.confirmation_token)) throw new Error('Plan changed or confirmation failed. Build the plan again.');
+  if (!response.ok) throw await errorFor(response);
+  let value: unknown;
+  try { value = await response.json(); } catch { throw new ManualSyncRequestError(); }
+  if (!record(value) || typeof value.confirmation_token !== 'string' || !/^[a-f0-9]{64}$/.test(value.confirmation_token)) throw new ManualSyncRequestError();
   return value.confirmation_token;
 }
 
 export async function applySync(instance: string, token: string, signal: AbortSignal): Promise<string> {
   const response = await protectedPost(`/api/v1/sources/${encodeURIComponent(instance)}/sync`, { confirmation_token: token }, signal);
-  const value: unknown = await response.json();
-  if (!response.ok || !record(value) || value.status !== 'SUCCEEDED' || typeof value.plan_digest !== 'string' || !/^[a-f0-9]{64}$/.test(value.plan_digest)) throw new Error('Sync did not complete. Build a new plan before retrying.');
-  return value.status;
+  if (!response.ok) throw await errorFor(response);
+  let value: unknown;
+  try { value = await response.json(); } catch { throw new ManualSyncRequestError(); }
+  if (!record(value) || value.status !== 'SUCCEEDED' || typeof value.plan_digest !== 'string' || !/^[a-f0-9]{64}$/.test(value.plan_digest)) throw new ManualSyncRequestError();
+  return 'SUCCEEDED: Manual sync completed successfully.';
 }
