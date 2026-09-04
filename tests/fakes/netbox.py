@@ -111,7 +111,9 @@ class FakeEndpoint:
             if self._matches(record, filters)
         ]
 
-    def get(self, **filters):
+    def get(self, *args, **filters):
+        if args and args[0]:
+            filters = {'id': args[0]}
         matches = self.filter(**filters)
 
         if not matches:

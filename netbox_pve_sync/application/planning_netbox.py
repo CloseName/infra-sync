@@ -103,11 +103,15 @@ class PlanningEndpoint:
         existing = [self._wrap(record) for record in self._endpoint.filter(**filters)]
         return existing + [record for record in self._created if self._matches(record, filters)]
 
-    def get(self, **filters):
-        existing = self._wrap(self._endpoint.get(**filters))
+    def get(self, *args, **filters):
+        existing = self._wrap(self._endpoint.get(*args, **filters))
         if existing is not None:
             return existing
-        created = [record for record in self._created if self._matches(record, filters)]
+        planned_filters = {'id': args[0]} if args and args[0] else filters
+        created = [
+            record for record in self._created
+            if self._matches(record, planned_filters)
+        ]
         if len(created) > 1:
             raise ValueError('Multiple planned records match')
         return created[0] if created else None

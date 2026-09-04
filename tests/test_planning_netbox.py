@@ -36,6 +36,26 @@ def test_facade_preserves_pynetbox_relation_objects_during_reads():
     assert facade.virtualization.virtual_machines.get(id=10).cluster.id == 3
 
 
+def test_facade_get_accepts_positional_id_for_existing_and_planned_records():
+    """Positional detail lookups retain the pynetbox Endpoint.get contract."""
+    api = FakeNetBox()
+    existing = api.dcim.devices.add(FakeRecord(id=10, name='existing'))
+    facade = PlanningNetBox(api)
+    result = facade.dcim.devices.get(10)
+    assert result.id == existing.id
+    assert result.name == existing.name
+    created = facade.dcim.devices.create(name='planned')
+    assert facade.dcim.devices.get(created.id) is created
+
+
+def test_facade_get_supports_keyword_lookup_for_planned_record():
+    """Keyword lookups can resolve records created earlier in the same plan."""
+    api = FakeNetBox()
+    facade = PlanningNetBox(api)
+    created = facade.dcim.devices.create(name='planned')
+    assert facade.dcim.devices.get(name='planned') is created
+
+
 def test_planned_creates_are_visible_to_later_executor_stages():
     """Later network planning can resolve an object created by an earlier dry-run stage."""
     api = FakeNetBox()
