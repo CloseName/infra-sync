@@ -20,6 +20,7 @@ from ..application.diagnostics import DiagnosticsService
 from ..application.sources import SourceReadError, SourceVisibilityService
 from ..application.sources import source_view
 from ..application.runs import RunHistoryService, RunReadError
+from ..application.schedules import ScheduleReadError, ScheduleService
 from ..application.onboarding import EphemeralOnboardingStore, OnboardingError, SourceOnboardingService
 from .database import PostgresHealthProbe
 from .dto import (DiagnosticsDTO, ErrorDTO, ErrorDetailDTO, LivenessDTO,
@@ -27,7 +28,8 @@ from .dto import (DiagnosticsDTO, ErrorDTO, ErrorDetailDTO, LivenessDTO,
 from .settings import ApiSettings, application_version
 from .source_reader import PostgresSourceReader
 from .dto import (ApplyRequestDTO, ApplyResultDTO, ConfirmationDTO, ConfirmationRequestDTO,
-                  DiscoveryResultDTO, SourceDTO, SourceListDTO, SyncPlanDTO)
+                  DiscoveryResultDTO, ScheduleDTO, ScheduleUpdateDTO, SourceDTO,
+                  SourceListDTO, SyncPlanDTO)
 from .dto import SyncPlanRequestDTO, SyncRunDTO, SyncRunListDTO
 from .discovery_client import DiscoveryRequestError, DiscoveryWorkerClient
 from .apply_client import ApplyRequestError, ApplyWorkerClient
@@ -36,6 +38,7 @@ from .onboarding_dto import CancellationRequest, CancellationResult
 from .onboarding_adapters import BrokerSecretStore, RegistrationRegistry, test_esxi, test_proxmox
 from .run_reader import PostgresRunReader
 from .worker_health import WorkerHealthClient
+from .schedule_client import ScheduleRequestError, ScheduleWorkerClient
 
 LOGGER = logging.getLogger('infra_sync.api')
 
@@ -113,6 +116,22 @@ def _install_boundaries(app, settings):
         status, message = errors[exc.code.value]
         return _error(request, status, exc.code.value, message)
 
+    @app.exception_handler(ScheduleRequestError)
+    async def schedule_error(request, exc):
+        errors = {
+            'SCHEDULE_INVALID': (422, 'Scheduling settings are invalid'),
+            'SCHEDULE_CONFLICT': (409, 'Scheduling settings changed; refresh and try again'),
+            'SOURCE_NOT_FOUND': (404, 'Source not found'),
+            'CONTROL_WORKER_UNAVAILABLE': (503, 'Scheduling control is unavailable'),
+            'CONTROL_REQUEST_FAILED': (503, 'Scheduling update failed'),
+        }
+        status, message = errors.get(exc.code, errors['CONTROL_REQUEST_FAILED'])
+        return _error(request, status, exc.code, message)
+
+    @app.exception_handler(ScheduleReadError)
+    async def schedule_read_error(request, exc):
+        return _error(request, 503, exc.code, 'Scheduling state is unavailable')
+
     @app.middleware('http')
     async def request_boundary(request: Request, call_next):
         # Never trust/re-emit client correlation headers, URLs, query or body.
@@ -121,14 +140,14 @@ def _install_boundaries(app, settings):
         request.state.run_id = None
         request.state.diagnostics_status = None
         try:
-            if request.method == 'POST' and (
+            if request.method in ('POST', 'PATCH') and (
                     request.url.path in (
                         '/api/v1/sources', '/api/v1/sources/test-connection',
                         '/api/v1/sources/cancel-onboarding',
                     ) or (
                         request.url.path.startswith('/api/v1/sources/')
                         and request.url.path.endswith(('/discovery', '/sync-plan',
-                                                       '/sync-confirmations', '/sync'))
+                                                       '/sync-confirmations', '/sync', '/schedule'))
                     )):
                 origin = urlsplit(request.headers.get('origin', ''))
                 host = request.headers.get('host', '')
@@ -179,7 +198,7 @@ def _install_boundaries(app, settings):
 
 def create_app(settings=None, service=None, source_service=None, onboarding_service=None,
                discovery_client=None, apply_client=None, run_service=None,
-               diagnostics_service=None):
+               diagnostics_service=None, schedule_service=None):
     """Construct without DB access; all environment reading is confined to bootstrap."""
     if not LOGGER.handlers:
         LOGGER.addHandler(logging.StreamHandler())
@@ -204,6 +223,9 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
         WorkerHealthClient(settings.apply_socket),
         settings.diagnostics_stale_seconds,
     )
+    schedule_service = schedule_service or ScheduleService(
+        source_service, PostgresRunReader(settings),
+        ScheduleWorkerClient(settings.schedule_socket), settings.diagnostics_stale_seconds)
     app = FastAPI(title='Infra Sync', version=application_version(),
                   docs_url=None, redoc_url=None, openapi_url=None, debug=False)
     _install_boundaries(app, settings)
@@ -252,6 +274,15 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
     @router.get('/sources/{source_instance}', response_model=SourceDTO)
     def source_detail(source_instance: str):
         return SourceDTO.from_view(source_service.get_source(source_instance))
+
+    @router.get('/sources/{source_instance}/schedule', response_model=ScheduleDTO)
+    def source_schedule(source_instance: str):
+        return ScheduleDTO.from_view(schedule_service.get(source_instance))
+
+    @router.patch('/sources/{source_instance}/schedule', response_model=ScheduleDTO)
+    def update_source_schedule(source_instance: str, payload: ScheduleUpdateDTO):
+        return ScheduleDTO.from_view(schedule_service.update(
+            source_instance, payload.model_dump()))
 
     @router.post('/sources/{source_instance}/discovery', response_model=DiscoveryResultDTO)
     def discover_source(source_instance: str):

@@ -147,6 +147,23 @@ def load_runtime_source_configs(environ=None, registry_factory=None):
     return configs
 
 
+def load_scheduler_source_configs(environ=None, registry_factory=None):
+    """Load all registry sources so a fixed tick can classify each one."""
+    if environ is None:
+        environ = os.environ
+    if runtime_source_mode(environ) != REGISTRY_ALL_MODE:
+        raise SourceBootstrapError('scheduler requires SOURCE_CONFIG_MODE=registry-all')
+    registry = (registry_factory or _postgres_registry)(
+        _required(environ, 'INFRA_SYNC_REGISTRY_DSN'),
+        _required(environ, 'INFRA_SYNC_REGISTRY_SCHEMA'))
+    configs = tuple(record.to_source_config() for record in registry.list_sources())
+    owners = [config.id for config in configs
+              if config.enabled and config.sync_enabled and config.legacy_identity_owner]
+    if len(owners) > 1:
+        raise SourceBootstrapError('Registry has multiple runnable legacy identity owners')
+    return configs
+
+
 def _registry_credential_reference(reference):
     provider = 'env' if reference.provider == 'environment' else reference.provider
     key = Path(reference.key).name if provider == 'file' else reference.key

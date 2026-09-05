@@ -5,7 +5,7 @@ export type DiagnosticCode = 'REGISTRY_UNAVAILABLE' | 'RUN_HISTORY_UNAVAILABLE'
 export interface DiagnosticComponent { status: DiagnosticStatus; checked_at: string; safe_code: DiagnosticCode | null; safe_message: string | null; last_seen_at: string | null; last_success_at: string | null; next_expected_at: string | null; }
 export interface DiagnosticRun { run_id: string; trigger: 'manual' | 'scheduled'; status: string; started_at: string; finished_at: string | null; }
 export interface DiagnosticWarning { warning_code: 'STALE_RUNNING' | 'SCHEDULED_ACTIVITY_DELAYED'; safe_message: string; source_instance: string | null; source_type: 'proxmox' | 'esxi' | null; trigger: 'manual' | 'scheduled' | null; run_id: string | null; started_at: string | null; age_seconds: number | null; }
-export interface SourceDiagnostic { source_instance: string; source_type: 'proxmox' | 'esxi'; enabled: boolean; sync_enabled: boolean; sync_interval_seconds: number; status: DiagnosticStatus; latest_run: DiagnosticRun | null; latest_success_at: string | null; latest_scheduled_run: DiagnosticRun | null; latest_manual_run: DiagnosticRun | null; warning_count: number; warnings: ('STALE_RUNNING' | 'SCHEDULED_ACTIVITY_DELAYED')[]; }
+export interface SourceDiagnostic { source_instance: string; source_type: 'proxmox' | 'esxi'; enabled: boolean; sync_enabled: boolean; sync_interval_seconds: number; status: DiagnosticStatus; latest_run: DiagnosticRun | null; latest_success_at: string | null; latest_scheduled_run: DiagnosticRun | null; latest_manual_run: DiagnosticRun | null; scheduler_state: 'DISABLED' | 'WAITING' | 'DUE' | 'RUNNING' | 'DELAYED'; last_scheduled_run_at: string | null; next_expected_at: string | null; warning_count: number; warnings: ('STALE_RUNNING' | 'SCHEDULED_ACTIVITY_DELAYED')[]; }
 export interface Diagnostics { overall_status: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY'; generated_at: string; components: Record<'api' | 'registry' | 'run_history' | 'discovery_worker' | 'apply_worker' | 'scheduler', DiagnosticComponent>; sources: SourceDiagnostic[]; stale_runs: DiagnosticWarning[]; warnings: DiagnosticWarning[]; }
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -45,6 +45,8 @@ const isSource = (value: unknown): value is SourceDiagnostic => record(value)
   && (value.latest_run === null || isRun(value.latest_run)) && nullableTime(value.latest_success_at)
   && (value.latest_scheduled_run === null || isRun(value.latest_scheduled_run))
   && (value.latest_manual_run === null || isRun(value.latest_manual_run))
+  && typeof value.scheduler_state === 'string' && ['DISABLED', 'WAITING', 'DUE', 'RUNNING', 'DELAYED'].includes(value.scheduler_state)
+  && nullableTime(value.last_scheduled_run_at) && nullableTime(value.next_expected_at)
   && Number.isSafeInteger(value.warning_count) && Number(value.warning_count) >= 0
   && Array.isArray(value.warnings) && value.warnings.every((item) => typeof item === 'string' && warnings.has(item));
 

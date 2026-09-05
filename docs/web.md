@@ -698,7 +698,61 @@ source plus a bounded 100-row stale query), not one query per source. Existing s
 status, and trigger indexes are used; no migration or new database permission is
 required beyond the WEB-6 API reader's SELECT on `sync_runs`.
 
-Deferred: abandoned-run cleanup, recovery/retry, scheduler editing, live systemd
+Deferred from diagnostics: abandoned-run cleanup, recovery/retry, live systemd
 status, raw logs, notifications, RBAC/LDAP, and broader UI redesign. Do not give the
 API Docker socket, DBus/systemd access, run-writer DSN, apply token, source secrets,
 or host write access for diagnostics.
+
+# WEB-8 per-source scheduling
+
+The existing systemd unit remains the host-owned serialization boundary. Install the
+tracked `deploy/systemd/infra-netbox-sync.timer.d/web8-fixed-tick.conf` drop-in only in
+the reviewed rollout to change it to a fixed 60-second tick. It invokes registry-all under
+`/run/infra-sync/apply.lock`; systemd does not calculate individual source schedules.
+Do not modify the live timer until the WEB-8 worker/API/runtime smoke tests pass.
+
+The runtime loads all registry sources and derives `DISABLED`, `WAITING`, `DUE`,
+`RUNNING`, or `DELAYED` from configuration and scheduled history. The reference is the
+latest scheduled `started_at` plus `sync_interval_seconds`; manual runs are ignored.
+No history is due now. Missed ticks cause one execution only. Recent scheduled RUNNING
+is skipped, while stale RUNNING remains visible and unchanged but does not block forever.
+Disabling automatic sync never kills an existing run and does not disable manual sync.
+Re-enabling an overdue source makes it due on the next tick.
+`SYNC_MODE=inventory` is evaluation-only: it reads and prints decisions but does not
+contact providers or create/finalize scheduled run records.
+
+The schedule endpoint changes only `sync_enabled` and `sync_interval_seconds`. Desired
+intervals are 60 through 86400 seconds. Expected previous values provide optimistic
+concurrency; a mismatch returns `SCHEDULE_CONFLICT`. The API receives only the schedule
+Unix socket, never the writer DSN.
+
+Create a dedicated role using reviewed identifiers for the real database/schema:
+
+```sql
+CREATE ROLE infra_sync_schedule_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
+REVOKE ALL ON DATABASE infra_sync FROM infra_sync_schedule_writer;
+GRANT CONNECT ON DATABASE infra_sync TO infra_sync_schedule_writer;
+REVOKE ALL ON SCHEMA infra_sync FROM infra_sync_schedule_writer;
+GRANT USAGE ON SCHEMA infra_sync TO infra_sync_schedule_writer;
+REVOKE ALL ON ALL TABLES IN SCHEMA infra_sync FROM infra_sync_schedule_writer;
+GRANT SELECT (source_instance, sync_enabled, sync_interval_seconds)
+  ON infra_sync.sources TO infra_sync_schedule_writer;
+GRANT UPDATE (sync_enabled, sync_interval_seconds)
+  ON infra_sync.sources TO infra_sync_schedule_writer;
+```
+
+Do not grant INSERT, DELETE, TRUNCATE, DDL, `enabled`/identity/credential updates,
+`schema_meta` writes, or `sync_runs` writes. Supply its DSN only as
+`INFRA_SYNC_SCHEDULE_WRITER_DSN` to `infra-sync-schedule-worker`.
+
+Production rollout order: back up registry configuration; create/grant the narrow role;
+install its secret environment; deploy the schedule worker socket and rebuild API/worker;
+smoke read and optimistic update; evaluate a dry tick; install the reviewed 60-second
+timer artifact; verify Proxmox 5-minute and ESXi 10-minute cadence; disable ESXi automatic
+sync and verify Proxmox plus ESXi manual flow; re-enable ESXi and verify next-tick resume;
+verify shared-lock contention, Runs, Diagnostics, and finally restart/reboot persistence.
+Because the service is `Type=oneshot`, systemd does not run a second instance of the same
+unit while it remains active; the shared flock also prevents overlap with manual apply.
+
+Deferred: cron/timezones, clock-time schedules, maintenance windows, retry policies,
+stale cleanup, live systemd control, notifications, RBAC, and source/credential editing.

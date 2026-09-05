@@ -11,6 +11,8 @@ const run = { run_id: '11111111-1111-4111-8111-111111111111', trigger: 'schedule
 const source = { source_instance: 'pve-test', source_type: 'proxmox', enabled: true,
   sync_enabled: true, sync_interval_seconds: 600, status: 'HEALTHY', latest_run: run,
   latest_success_at: run.started_at, latest_scheduled_run: run, latest_manual_run: null,
+  scheduler_state: 'WAITING', last_scheduled_run_at: run.started_at,
+  next_expected_at: '2026-09-05T11:10:00Z',
   warning_count: 0, warnings: [] };
 const diagnostics = { overall_status: 'HEALTHY', generated_at: '2026-09-05T12:00:00Z',
   components: Object.fromEntries(['api', 'registry', 'run_history', 'discovery_worker',

@@ -121,6 +121,9 @@ class SourceDiagnosticDTO(PublicModel):
     latest_success_at: datetime | None
     latest_scheduled_run: DiagnosticRunDTO | None
     latest_manual_run: DiagnosticRunDTO | None
+    scheduler_state: Literal['DISABLED', 'WAITING', 'DUE', 'RUNNING', 'DELAYED']
+    last_scheduled_run_at: datetime | None
+    next_expected_at: datetime | None
     warning_count: int = Field(ge=0)
     warnings: list[Literal['STALE_RUNNING', 'SCHEDULED_ACTIVITY_DELAYED']]
 
@@ -154,6 +157,9 @@ class DiagnosticsDTO(PublicModel):
                                   if value.latest_scheduled_run else None),
             latest_manual_run=(DiagnosticRunDTO(**vars(value.latest_manual_run))
                                if value.latest_manual_run else None),
+            scheduler_state=value.scheduler_state,
+            last_scheduled_run_at=value.last_scheduled_run_at,
+            next_expected_at=value.next_expected_at,
             warning_count=value.warning_count, warnings=list(value.warnings),
         ) for value in result.sources]
         warning = lambda value: DiagnosticWarningDTO(**vars(value))
@@ -222,6 +228,31 @@ class SourceListDTO(PublicModel):
     """Stable list envelope including an empty registry."""
 
     sources: list[SourceDTO]
+
+
+class ScheduleUpdateDTO(PublicModel):
+    """Optimistic update of only automatic synchronization fields."""
+
+    sync_enabled: bool
+    sync_interval_seconds: int = Field(strict=True, ge=60, le=86400)
+    expected_sync_enabled: bool
+    expected_sync_interval_seconds: int = Field(strict=True, gt=0, le=2147483647)
+
+
+class ScheduleDTO(PublicModel):
+    """Public derived schedule state."""
+
+    source_instance: str
+    sync_enabled: bool
+    sync_interval_seconds: int
+    scheduler_state: Literal['DISABLED', 'WAITING', 'DUE', 'RUNNING', 'DELAYED']
+    last_scheduled_run_at: datetime | None
+    next_expected_at: datetime | None
+
+    @classmethod
+    def from_view(cls, view):
+        """Copy the exact schedule application projection."""
+        return cls(**vars(view))
 
 
 class DiscoveryItemDTO(PublicModel):

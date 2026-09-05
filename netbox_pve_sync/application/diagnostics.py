@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 
+from .scheduling import evaluate_schedule
+
 
 class DiagnosticStatus(str, Enum):
     """Closed public diagnostic states."""
@@ -67,6 +69,9 @@ class SourceDiagnostic:
     latest_success_at: datetime | None
     latest_scheduled_run: RunSummary | None
     latest_manual_run: RunSummary | None
+    scheduler_state: str
+    last_scheduled_run_at: datetime | None
+    next_expected_at: datetime | None
     warnings: tuple[str, ...]
 
     @property
@@ -84,6 +89,7 @@ class HistorySnapshot:
     manual: tuple
     stale: tuple
     scheduled_successes: tuple = ()
+    scheduled_running: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -171,6 +177,7 @@ class DiagnosticsService:
 
         latest, successes = _indexed(snapshot.latest), _indexed(snapshot.successes)
         scheduled, manual = _indexed(snapshot.scheduled), _indexed(snapshot.manual)
+        scheduled_running = _indexed(snapshot.scheduled_running)
         stale_by_source = {run.source_instance for run in snapshot.stale}
         source_results, warnings = [], []
         for source in sorted(source_views, key=lambda value: value.source_instance):
@@ -179,12 +186,12 @@ class DiagnosticsService:
             if source.source_instance in stale_by_source:
                 source_warnings.append('STALE_RUNNING')
             scheduled_run = scheduled.get(source.source_instance)
-            delayed = False
-            if source.enabled and source.sync_enabled and scheduled_run:
-                threshold = max(source.sync_interval_seconds * 2, 1800)
-                delayed = (now - scheduled_run.started_at).total_seconds() > threshold
-                if delayed:
-                    source_warnings.append('SCHEDULED_ACTIVITY_DELAYED')
+            decision = evaluate_schedule(
+                source, scheduled_run, scheduled_running.get(source.source_instance),
+                now, self._stale_seconds)
+            delayed = decision.state.value == 'DELAYED'
+            if delayed:
+                source_warnings.append('SCHEDULED_ACTIVITY_DELAYED')
             if not source.enabled or current is None:
                 status = DiagnosticStatus.UNKNOWN
             elif current.status.value == 'SUCCEEDED':
@@ -204,6 +211,8 @@ class DiagnosticsService:
                  or successes.get(source.source_instance).started_at)
                 if source.source_instance in successes else None,
                 _summary(scheduled_run), _summary(manual.get(source.source_instance)),
+                decision.state.value, decision.last_scheduled_run_at,
+                decision.next_expected_at,
                 tuple(source_warnings),
             ))
             if delayed:

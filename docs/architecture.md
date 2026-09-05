@@ -94,6 +94,8 @@ systemd registry-all -> per source INSERT RUNNING -> SourceExecutorDispatch
                      -> guarded runtime -> per source UPDATE terminal
 history GET -> read-only API role -> explicit DTO -> Runs frontend
 diagnostics GET -> source/history readers + socket health -> safe aggregate DTO
+systemd tick -> scheduler runtime -> registry + scheduled history -> due sources only
+schedule PATCH -> API -> schedule-control socket -> column-limited PostgreSQL role
 ```
 
 Allocate a UUID once per source execution. A multi-source scheduler iteration has
@@ -119,6 +121,19 @@ scheduled runs are compared with each enabled/sync-enabled source interval using
 minimum 30-minute safety window. The API never calls systemctl, DBus, Docker, or a
 host command. Stale RUNNING is a bounded read-only warning after the configured
 threshold (default two hours); it is never finalized, deleted, retried, or recovered.
+
+WEB-8 derives scheduling from the latest scheduled `started_at`; manual runs never move
+cadence. A source with no scheduled history is due immediately. A missed interval creates
+at most one attempt on the next tick, never a backlog. A recent scheduled RUNNING record
+prevents overlap; a record older than the shared WEB-7 stale threshold remains untouched
+but no longer blocks a new due attempt. The host-level `/run/infra-sync/apply.lock` remains
+the final serialization boundary.
+
+The API retains no source UPDATE privilege. Its narrowly mounted schedule socket reaches
+a dedicated worker with only a schedule-writer DSN. That worker accepts an exact typed
+operation and conditionally updates only `sync_enabled` and `sync_interval_seconds` using
+the expected previous values. It has no source secrets, NetBox token, apply capability,
+Docker socket, systemd control, or host filesystem mount.
 
 Legacy CLI consumes environment variables and prints text. WEB-1 must introduce
 an injectable bootstrap adapter before concurrent request execution; do not set

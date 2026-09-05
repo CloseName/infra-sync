@@ -48,10 +48,10 @@ export function DiagnosticsPage() {
       })}</section>
       <h2>Sources</h2>{data.sources.length === 0 ? <p>No sources configured.</p> :
         <div className="source-table"><table><thead><tr><th>Source</th><th>Type</th><th>Status</th>
-          <th>Last Run</th><th>Last Success</th><th>Trigger</th><th>Warnings</th></tr></thead>
+          <th>Schedule</th><th>Last Run</th><th>Last Success</th><th>Next Expected</th><th>Trigger</th><th>Warnings</th></tr></thead>
           <tbody>{data.sources.map((source) => <tr key={source.source_instance}><td>{source.source_instance}</td>
-            <td>{source.source_type}</td><td>{source.status}</td><td>{time(source.latest_run?.started_at ?? null)}</td>
-            <td>{time(source.latest_success_at)}</td><td>{source.latest_run?.trigger ?? 'None'}</td>
+            <td>{source.source_type}</td><td>{source.status}</td><td>{source.scheduler_state}</td><td>{time(source.latest_run?.started_at ?? null)}</td>
+            <td>{time(source.latest_success_at)}</td><td>{time(source.next_expected_at)}</td><td>{source.latest_run?.trigger ?? 'None'}</td>
             <td>{source.warning_count}</td></tr>)}</tbody></table></div>}
       {data.sources.length > 0 && data.sources.every((source) => source.latest_run === null)
         && <p>No synchronization runs recorded yet.</p>}

@@ -17,6 +17,7 @@ services:
       INFRA_SYNC_BROKER_SOCKET: /run/infra-sync-broker/broker.sock
       INFRA_SYNC_DISCOVERY_SOCKET: /run/infra-sync-discovery/worker.sock
       INFRA_SYNC_APPLY_SOCKET: /run/infra-sync-apply/worker.sock
+      INFRA_SYNC_SCHEDULE_SOCKET: /run/infra-sync-schedule/worker.sock
       INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS: ${INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS:-7200}
       INFRA_SYNC_WRITE_HOSTS: ${INFRA_SYNC_WRITE_HOSTS:-127.0.0.1:8000,localhost:8000}
       INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS: ${INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS:-}
@@ -27,6 +28,7 @@ services:
       - infra-sync-broker-socket:/run/infra-sync-broker:ro
       - infra-sync-discovery-socket:/run/infra-sync-discovery:ro
       - infra-sync-apply-socket:/run/infra-sync-apply:ro
+      - infra-sync-schedule-socket:/run/infra-sync-schedule:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -118,10 +120,32 @@ services:
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
 
+  infra-sync-schedule-worker:
+    profiles: [schedule]
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    user: "0:0"
+    command: [python, -m, netbox_pve_sync.schedule_worker,
+              --socket, /run/infra-sync-schedule/worker.sock, --api-uid, "10001"]
+    environment:
+      INFRA_SYNC_SCHEDULE_WRITER_DSN: ${INFRA_SYNC_SCHEDULE_WRITER_DSN:-}
+      INFRA_SYNC_REGISTRY_SCHEMA: ${INFRA_SYNC_REGISTRY_SCHEMA:-}
+    volumes:
+      - infra-sync-schedule-socket:/run/infra-sync-schedule
+    networks: [netbox]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
 volumes:
   infra-sync-broker-socket:
   infra-sync-discovery-socket:
   infra-sync-apply-socket:
+  infra-sync-schedule-socket:
 
 networks:
   netbox:

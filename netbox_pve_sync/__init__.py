@@ -1134,14 +1134,32 @@ def main():
     print(f'SYNC_MODE={sync_mode}')
     source_mode = runtime_source_mode(os.environ)
     if source_mode == REGISTRY_ALL_MODE:
-        configs = load_runtime_source_configs()
+        from .scheduler_runtime import run_scheduler_tick  # pylint: disable=import-outside-toplevel
+        from .source_bootstrap import load_scheduler_source_configs  # pylint: disable=import-outside-toplevel
+        from .application.scheduling import stale_threshold  # pylint: disable=import-outside-toplevel
+        configs = load_scheduler_source_configs()
         dispatch = _source_dispatch(sync_mode)
         history = postgres_run_repository(
-            os.environ.get('INFRA_SYNC_RUN_WRITER_DSN', ''),
+            (os.environ.get('INFRA_SYNC_RUN_WRITER_DSN', '') if sync_mode == 'apply'
+             else os.environ.get('INFRA_SYNC_REGISTRY_DSN', '')),
             os.environ['INFRA_SYNC_REGISTRY_SCHEMA'],
-        ) if sync_mode == 'apply' else None
-        result = run_sources(configs, dispatch.execute, run_repository=history)
+        )
+        tick = run_scheduler_tick(
+            configs, dispatch.execute, history,
+            stale_seconds=stale_threshold(
+                os.environ.get('INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS', '7200')),
+            execute_due=sync_mode == 'apply',
+        )
+        result = tick.execution
         _print_multi_source_result(result)
+        counts = tick.counts
+        print('SCHEDULER SUMMARY')
+        print(f'sources={len(tick.decisions)}')
+        for name in ('due', 'delayed', 'waiting', 'running', 'disabled'):
+            print(f'{name}={counts[name]}')
+        print(f'executed={result.total}')
+        print(f'failed={result.failed}')
+        print(f'history_failures={result.history_failures}')
         if result.failed or result.history_failures:
             raise SystemExit(1)
         return

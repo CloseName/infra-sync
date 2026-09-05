@@ -44,4 +44,10 @@ class PostgresRunReader:
             repository.latest_by_source(trigger='manual'),
             repository.stale_running(stale_before, stale_limit),
             repository.latest_by_source(trigger='scheduled', status='SUCCEEDED'),
+            repository.latest_by_source(trigger='scheduled', status='RUNNING'),
         )
+
+    def scheduled_for_source(self, source_instance):
+        """Return bounded newest scheduled history for one source."""
+        return self._repository().list_runs(
+            source_instance=source_instance, trigger='scheduled', limit=100)

@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass, field
 from importlib.metadata import PackageNotFoundError, version
 from .egress import EgressPolicy
+from ..application.scheduling import stale_threshold
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ class ApiSettings:
     broker_socket: str = field(default='', repr=False)
     discovery_socket: str = field(default='', repr=False)
     apply_socket: str = field(default='', repr=False)
+    schedule_socket: str = field(default='', repr=False)
     diagnostics_stale_seconds: int = 7200
     allowed_write_hosts: tuple[str, ...] = ('127.0.0.1:8000', 'localhost:8000')
     egress_policy: EgressPolicy = field(default_factory=EgressPolicy)
@@ -26,12 +28,7 @@ class ApiSettings:
     def from_environment(cls, environ=None):
         """Read only required configuration; never log or serialize the environment."""
         env = os.environ if environ is None else environ
-        try:
-            stale_seconds = int(env.get('INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS', '7200'))
-        except ValueError:
-            stale_seconds = 7200
-        if not 300 <= stale_seconds <= 604800:
-            stale_seconds = 7200
+        stale_seconds = stale_threshold(env.get('INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS', '7200'))
         return cls(
             registry_dsn=env.get('INFRA_SYNC_REGISTRY_DSN', '').strip(),
             registry_schema=env.get('INFRA_SYNC_REGISTRY_SCHEMA', '').strip(),
@@ -44,6 +41,7 @@ class ApiSettings:
             broker_socket=env.get('INFRA_SYNC_BROKER_SOCKET', '').strip(),
             discovery_socket=env.get('INFRA_SYNC_DISCOVERY_SOCKET', '').strip(),
             apply_socket=env.get('INFRA_SYNC_APPLY_SOCKET', '').strip(),
+            schedule_socket=env.get('INFRA_SYNC_SCHEDULE_SOCKET', '').strip(),
             diagnostics_stale_seconds=stale_seconds,
             allowed_write_hosts=tuple(value.strip() for value in env.get(
                 'INFRA_SYNC_WRITE_HOSTS', '127.0.0.1:8000,localhost:8000',

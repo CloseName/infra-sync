@@ -5,6 +5,8 @@ import { runDiscovery } from '../api/discovery';
 import type { DiscoveryResult } from '../api/discovery';
 import { applySync, buildSyncPlan, ManualSyncRequestError, prepareSync, resultForSource } from '../api/sync';
 import type { ManualSyncResult, SyncPlan } from '../api/sync';
+import { fetchSchedule, updateSchedule } from '../api/schedule';
+import type { Schedule } from '../api/schedule';
 
 const genericSyncFailure = 'Manual sync request failed. No automatic retry was performed.';
 
@@ -31,6 +33,11 @@ export function SourcesPage() {
   const [syncPlan, setSyncPlan] = useState<SyncPlan | null>(null);
   const [syncResult, setSyncResult] = useState<ManualSyncResult | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [editingSchedule, setEditingSchedule] = useState(false);
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleInterval, setScheduleInterval] = useState(600);
+  const [scheduleMessage, setScheduleMessage] = useState('');
   const visibleSyncResult = resultForSource(syncResult, selected);
 
   const buildPlan = async () => {
@@ -66,9 +73,15 @@ export function SourcesPage() {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     let active = true;
-    setLoading(true); setError(''); setDetail(null);
+    setLoading(true); setError(''); setDetail(null); setSchedule(null); setScheduleMessage(''); setEditingSchedule(false);
     const operation = selected
-      ? fetchSource(selected, controller.signal).then((value) => { if (active) setDetail(value); })
+      ? fetchSource(selected, controller.signal).then((value) => {
+        if (active) setDetail(value);
+        return fetchSchedule(selected, controller.signal).catch((failure) => {
+          if (active) setScheduleMessage(failure instanceof Error ? failure.message : 'Scheduling request failed.');
+          return null;
+        });
+      }).then((scheduling) => { if (active && scheduling) { setSchedule(scheduling); setScheduleEnabled(scheduling.sync_enabled); setScheduleInterval(scheduling.sync_interval_seconds); } })
       : fetchSources(controller.signal).then((value) => { if (active) setSources(value); });
     operation.catch((failure: unknown) => {
       if (active) setError(failure instanceof Error ? failure.message : 'Source data unavailable.');
@@ -83,7 +96,7 @@ export function SourcesPage() {
         Editing is not available.</p></div>
       <button disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button>
     </div>
-    {selected && <button onClick={() => { setSelected(null); setDiscovery(null); setSyncPlan(null); setSyncResult(null); }}>Back to sources</button>}
+    {selected && <button onClick={() => { setSelected(null); setDiscovery(null); setSyncPlan(null); setSyncResult(null); setSchedule(null); }}>Back to sources</button>}
     {loading && <p role="status">Loading source configuration…</p>}
     {!loading && error && <p role="alert" className="source-error">{error}</p>}
     {!loading && !error && !selected && (sources.length === 0
@@ -102,7 +115,20 @@ export function SourcesPage() {
         <dt>{detailLabels[key]}</dt><dd>{typeof detail[key] === 'boolean'
           ? (detail[key] ? 'Yes' : 'No') : String(detail[key])}</dd>
       </div>)}
-    </dl><section className="discovery-review"><h2>Discovery / Preflight</h2>
+    </dl>{!schedule && scheduleMessage && <p role="alert" className="source-error">{scheduleMessage}</p>}{schedule && <section className="discovery-review"><h2>Automatic synchronization</h2>
+      <p>Status: {schedule.sync_enabled ? 'Enabled' : 'Disabled'}</p><p>Interval: Every {schedule.sync_interval_seconds} seconds</p>
+      <p>Scheduler state: {schedule.scheduler_state}</p><p>Last scheduled run: {schedule.last_scheduled_run_at ? new Date(schedule.last_scheduled_run_at).toLocaleString() : 'None'}</p>
+      <p>Next expected run: {schedule.next_expected_at ? new Date(schedule.next_expected_at).toLocaleString() : 'Not scheduled'}</p>
+      {!editingSchedule ? <button onClick={() => { setEditingSchedule(true); setScheduleMessage(''); }}>Edit schedule</button> : <div>
+        <label><input type="checkbox" checked={scheduleEnabled} onChange={(event) => setScheduleEnabled(event.target.checked)} /> Automatic sync</label>
+        <label>Interval <select value={scheduleInterval} onChange={(event) => setScheduleInterval(Number(event.target.value))}>
+          {[300, 600, 900, 1800, 3600, 21600, 86400].map((value) => <option key={value} value={value}>{value} seconds</option>)}
+        </select></label>
+        <label>Custom seconds <input type="number" min="60" max="86400" value={scheduleInterval} onChange={(event) => setScheduleInterval(Number(event.target.value))} /></label>
+        <button onClick={async () => { setScheduleMessage(''); try { const updated = await updateSchedule(detail.source_instance, { sync_enabled: scheduleEnabled, sync_interval_seconds: scheduleInterval, expected_sync_enabled: schedule.sync_enabled, expected_sync_interval_seconds: schedule.sync_interval_seconds }, new AbortController().signal); setSchedule(updated); setEditingSchedule(false); setScheduleMessage(updated.sync_enabled ? 'Automatic synchronization updated.' : 'Automatic synchronization disabled. Manual synchronization remains available.'); } catch (failure) { setScheduleMessage(failure instanceof Error ? failure.message : 'Scheduling update failed.'); } }}>Save</button>
+        <button onClick={() => { setEditingSchedule(false); setScheduleEnabled(schedule.sync_enabled); setScheduleInterval(schedule.sync_interval_seconds); }}>Cancel</button>
+      </div>}{scheduleMessage && <p role="status">{scheduleMessage}</p>}
+    </section>}<section className="discovery-review"><h2>Discovery / Preflight</h2>
       <p>Read-only: this contacts the source and NetBox but makes no NetBox changes.</p>
       <button disabled={discovering || !detail.enabled} onClick={discover}>Run discovery</button>
       {discovering && <p role="status">Running read-only discovery…</p>}
@@ -122,8 +148,7 @@ export function SourcesPage() {
       {visibleSyncResult && <p role={visibleSyncResult.kind === 'error' ? 'alert' : 'status'}
         className={visibleSyncResult.kind === 'error' ? 'source-error' : undefined}>{visibleSyncResult.message}</p>}
     </section></>}
-    <p className="intro">Flags and interval describe registry configuration, not scheduler execution or source health.
-      The existing systemd scheduler is unchanged.</p>
+    <p className="intro">Systemd provides a fixed tick; Infra Sync derives each source schedule from persisted scheduled runs.</p>
   </main>;
 }
 
