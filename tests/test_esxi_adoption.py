@@ -293,6 +293,32 @@ def test_case_only_exact_name_requires_review(fake_netbox):
     assert item.candidates[0].signals == ('exact_name',)
 
 
+@pytest.mark.parametrize('legacy_name', (
+    'CONFLUENCE', 'OWNCLOUD', 'MOODLE', 'KAYAKO', 'KAYAKOTEST',
+    'TESTRAIL', 'YOUTRACK-7',
+))
+def test_known_legacy_name_only_objects_remain_review_required(
+        fake_netbox, legacy_name,
+):
+    _, cluster = _target(fake_netbox)
+    _add_vm(
+        fake_netbox,
+        cluster,
+        record_id=10,
+        name=legacy_name.lower(),
+    )
+
+    item = _item(
+        build_esxi_adoption_plan(
+            fake_netbox, _inventory(name=legacy_name), _config(),
+        ),
+        'vm',
+    )
+
+    assert item.classification == AdoptionClassification.REVIEW_REQUIRED
+    assert item.candidates[0].signals == ('exact_name',)
+
+
 def test_host_requires_target_site_and_cluster_and_matches_ip(fake_netbox):
     site, cluster = _target(fake_netbox)
     primary_ip = _add_ip(fake_netbox, 1100, '192.0.2.10/24')

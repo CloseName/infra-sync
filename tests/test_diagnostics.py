@@ -155,6 +155,25 @@ def test_esxi_source_uses_the_same_history_status_rules():
     assert result.sources[0].status is DiagnosticStatus.HEALTHY
 
 
+def test_esxi_failure_is_scoped_without_degrading_healthy_proxmox_source():
+    proxmox = run('pve-test', source_type='proxmox')
+    esxi = run(
+        'esxi-test', source_type='esxi', status=RunStatus.FAILED,
+        identifier='22222222-2222-4222-8222-222222222222',
+    )
+    result = service(
+        (source('pve-test', 'proxmox'), source('esxi-test', 'esxi')),
+        HistorySnapshot(
+            (proxmox, esxi), (proxmox,), (proxmox, esxi), (), (),
+            (proxmox, esxi),
+        ),
+    ).check()
+    by_source = {item.source_instance: item for item in result.sources}
+
+    assert by_source['pve-test'].status is DiagnosticStatus.HEALTHY
+    assert by_source['esxi-test'].status is DiagnosticStatus.UNHEALTHY
+
+
 def test_diagnostics_api_is_200_with_allowlisted_dto_and_health_stays_lightweight():
     diagnostic = service((source(),)).check()
     with TestClient(create_app(ApiSettings(), diagnostics_service=SimpleNamespace(

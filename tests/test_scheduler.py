@@ -78,6 +78,31 @@ def test_tick_executes_only_due_once_with_different_intervals_and_no_catchup():
     assert tick.counts['due'] == 1 and tick.counts['waiting'] == 1
 
 
+def test_proxmox_and_esxi_keep_independent_cadence_and_history_keys():
+    repo = Repository((run('pve-a', 301), run('esxi-b', 599)))
+    configs = (
+        source('pve-a', 300),
+        source(
+            'esxi-b', 600, source_type='esxi', legacy_identity_owner=False,
+        ),
+    )
+    seen = []
+
+    tick = run_scheduler_tick(
+        configs,
+        lambda config: seen.append((config.source_instance, config.source_type)),
+        repo,
+        clock=lambda: NOW,
+    )
+
+    assert seen == [('pve-a', 'proxmox')]
+    assert repo.started == ['pve-a']
+    assert [(item.source_instance, item.state) for item in tick.decisions] == [
+        ('esxi-b', SchedulerState.WAITING),
+        ('pve-a', SchedulerState.DUE),
+    ]
+
+
 def test_recent_running_skips_one_stale_allows_one_and_failure_is_isolated():
     recent, stale = run('pve-a', 60, 'RUNNING'), run('pve-b', 8000, 'RUNNING')
     repo = Repository((recent, stale), (recent, stale))
