@@ -245,7 +245,9 @@ class ApplySupervisor:
                 apply_started = True
                 result = self._child(self._payload(config, 'apply', claims.plan_digest))
                 if result.get('plan_digest') != claims.plan_digest:
-                    raise ApplyWorkerError('PLAN_STALE')
+                    # The child may already have crossed the NetBox write boundary.
+                    # A response-contract mismatch is therefore not a pre-write stale plan.
+                    raise ApplyWorkerError('OUTCOME_UNCERTAIN')
             finally:
                 os.close(lock_fd)
             counts = ActionCounts(**result.pop('action_counts', {}))

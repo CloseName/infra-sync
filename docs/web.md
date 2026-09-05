@@ -576,6 +576,14 @@ systemd registry-all -> for each source INSERT RUNNING -> existing source apply
 -> UPDATE exact run terminal -> continue next source
 ```
 
+If the scheduled history INSERT fails, that source is not applied without its
+audit start record; it is reported as a safe history-unavailable failure and the
+batch continues. If terminal UPDATE fails, the actual source execution outcome
+is preserved separately from `FINALIZE_FAILED`, and the batch continues. Neither
+failure is retried, and raw database errors are never printed. A crash or lost
+database connection can still leave `RUNNING`; automatic abandoned-run cleanup
+is deferred rather than guessing the NetBox outcome.
+
 An abrupt process or database failure can leave `RUNNING` visible. WEB-6 does not
 guess success or retry it. Operator diagnostics/recovery for abandoned records is
 deferred. Both write-capable runtime boundaries fail closed at startup when

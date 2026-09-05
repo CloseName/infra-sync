@@ -100,6 +100,13 @@ one run_id per source, not an opaque batch row. A repeated apply is never author
 merely because its run_id matches. WEB-6 has no delivery retry or crash recovery;
 an interrupted RUNNING row remains visible for later operator diagnosis.
 
+Scheduled history persistence is isolated per source. Failure to create RUNNING
+skips that source apply, records a bounded history-unavailable result, and continues
+the batch. Failure to finalize history preserves the actual source execution result,
+reports `FINALIZE_FAILED`, and continues. Neither write is retried and no raw database
+exception is included in the runtime summary. The process exits nonzero after the
+complete batch when either source execution or history persistence failed.
+
 Legacy CLI consumes environment variables and prints text. WEB-1 must introduce
 an injectable bootstrap adapter before concurrent request execution; do not set
 os.environ per HTTP request and do not parse stdout into an API contract.

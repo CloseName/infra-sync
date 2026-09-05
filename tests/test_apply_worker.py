@@ -192,9 +192,30 @@ def test_manual_worker_failure_records_safe_terminal_outcome(
     with pytest.raises(ApplyWorkerError, match=worker_code):
         supervisor.apply('pve-infra-test', token)
     assert len(recorder.started) == len(recorder.finished) == 1
+    assert recorder.finished[0]['run_id'] == UUID('11111111-1111-4111-8111-111111111111')
     assert recorder.finished[0]['status'] is expected_status
     assert recorder.finished[0]['error_code'] == worker_code
     assert 'secret' not in recorder.finished[0]['error_message_safe'].casefold()
+
+
+def test_post_child_digest_mismatch_is_uncertain_on_same_run(monkeypatch):
+    secret = 'RAW_CHILD_SECRET_MUST_NOT_APPEAR'
+    supervisor, token, recorder = _manual_supervisor(
+        monkeypatch, lambda _payload: {
+            'status': 'SUCCEEDED', 'plan_digest': 'b' * 64,
+            'planner_version': 'web-5a-1', 'action_counts': {},
+            'raw_detail': secret,
+        })
+
+    with pytest.raises(ApplyWorkerError, match='OUTCOME_UNCERTAIN'):
+        supervisor.apply('pve-infra-test', token)
+
+    assert len(recorder.started) == len(recorder.finished) == 1
+    assert recorder.finished[0]['run_id'] == UUID('11111111-1111-4111-8111-111111111111')
+    assert recorder.finished[0]['status'] is RunStatus.OUTCOME_UNCERTAIN
+    assert recorder.finished[0]['error_code'] == 'OUTCOME_UNCERTAIN'
+    assert recorder.finished[0]['error_code'] != 'PLAN_STALE'
+    assert secret not in repr(recorder.finished)
 
 
 def test_manual_confirmation_failure_still_records_terminal_attempt(monkeypatch):

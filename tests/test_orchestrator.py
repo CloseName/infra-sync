@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 
-from netbox_pve_sync.orchestrator import run_sources
+from netbox_pve_sync.orchestrator import HistoryStatus, run_sources
 from netbox_pve_sync.run_history import RunStatus
 from netbox_pve_sync.source_executor import SourceExecutorDispatch
 
@@ -131,6 +131,23 @@ class RunRecorder:
         self.finished.append((run_id, status, values))
 
 
+class FailingRunRecorder(RunRecorder):
+    def __init__(self, start_failure=None, finish_failure=None):
+        super().__init__()
+        self.start_failure = start_failure
+        self.finish_failure = finish_failure
+
+    def start_run(self, source_instance, source_type, trigger, created_by):
+        if source_instance == self.start_failure:
+            raise RuntimeError('RAW_DATABASE_START_SECRET')
+        return super().start_run(source_instance, source_type, trigger, created_by)
+
+    def finish_run(self, run_id, status, **values):
+        if run_id == self.finish_failure:
+            raise RuntimeError('RAW_DATABASE_FINISH_SECRET')
+        return super().finish_run(run_id, status, **values)
+
+
 def test_scheduled_sources_create_distinct_terminal_history():
     recorder = RunRecorder()
     sources = (source('pve-a'), source('pve-b'))
@@ -164,3 +181,74 @@ def test_two_successful_scheduled_sources_create_two_independent_runs():
     assert [item[0] for item in recorder.finished] == ['esxi-b', 'pve-a']
     assert all(item[1] is RunStatus.SUCCEEDED for item in recorder.finished)
     assert all(item[2]['counts'].create == 1 for item in recorder.finished)
+
+
+def test_history_start_failure_skips_only_that_source_and_is_safe():
+    recorder = FailingRunRecorder(start_failure='pve-a')
+    executed = []
+    result = run_sources(
+        (source('pve-a'), source('pve-b')),
+        lambda config: executed.append(config.source_instance),
+        run_repository=recorder,
+    )
+    assert executed == ['pve-b']
+    assert [item.success for item in result.results] == [False, True]
+    assert result.results[0].history_status is HistoryStatus.START_FAILED
+    assert result.results[0].history_error_code == 'RUN_HISTORY_UNAVAILABLE'
+    assert result.history_failures == 1
+    assert [item[0] for item in recorder.finished] == ['pve-b']
+    assert 'RAW_DATABASE_START_SECRET' not in repr(result)
+
+
+def test_successful_sync_survives_history_finalize_failure_and_continues():
+    recorder = FailingRunRecorder(finish_failure='pve-a')
+    executed = []
+    result = run_sources(
+        (source('pve-a'), source('pve-b')),
+        lambda config: executed.append(config.source_instance),
+        run_repository=recorder,
+    )
+    assert executed == ['pve-a', 'pve-b']
+    assert [item.success for item in result.results] == [True, True]
+    assert result.results[0].history_status is HistoryStatus.FINALIZE_FAILED
+    assert result.results[0].history_error_code == 'RUN_HISTORY_UNAVAILABLE'
+    assert result.results[1].history_status is HistoryStatus.RECORDED
+    assert len(recorder.finished) == 1
+    assert recorder.finished[0][:2] == ('pve-b', RunStatus.SUCCEEDED)
+    assert 'RAW_DATABASE_FINISH_SECRET' not in repr(result)
+
+
+def test_source_and_history_finalize_failures_are_independent_and_continue():
+    recorder = FailingRunRecorder(finish_failure='pve-a')
+    executed = []
+
+    def execute(config):
+        executed.append(config.source_instance)
+        if config.source_instance == 'pve-a':
+            raise RuntimeError('RAW_PROVIDER_SECRET')
+
+    result = run_sources((source('pve-a'), source('pve-b')), execute,
+                         run_repository=recorder)
+    assert executed == ['pve-a', 'pve-b']
+    assert [item.success for item in result.results] == [False, True]
+    assert result.results[0].error_summary == 'source execution failed'
+    assert result.results[0].history_status is HistoryStatus.FINALIZE_FAILED
+    assert result.results[1].history_status is HistoryStatus.RECORDED
+    assert recorder.finished[0][0] == 'pve-b'
+    assert not any(secret in repr(result) for secret in (
+        'RAW_DATABASE_FINISH_SECRET', 'RAW_PROVIDER_SECRET'))
+
+
+def test_second_history_failure_does_not_change_first_terminal_run():
+    recorder = FailingRunRecorder(finish_failure='pve-b')
+    result = run_sources(
+        (source('pve-a'), source('pve-b')),
+        lambda _config: None,
+        run_repository=recorder,
+    )
+    assert [item[0] for item in recorder.started] == ['pve-a', 'pve-b']
+    assert [item[0] for item in recorder.finished] == ['pve-a']
+    assert recorder.finished[0][1] is RunStatus.SUCCEEDED
+    assert result.results[0].history_status is HistoryStatus.RECORDED
+    assert result.results[1].history_status is HistoryStatus.FINALIZE_FAILED
+    assert result.history_failures == 1

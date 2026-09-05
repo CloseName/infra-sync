@@ -1099,11 +1099,18 @@ def _print_multi_source_result(result):
                 f'{source_result.error_type}: '
                 f'{source_result.error_summary}'
             )
+        if source_result.history_error_code:
+            print(
+                f'SOURCE {source_result.source_id} HISTORY '
+                f'{source_result.history_status.value} '
+                f'{source_result.history_error_code}'
+            )
     print()
     print('MULTI-SOURCE SUMMARY')
     print(f'total={result.total}')
     print(f'succeeded={result.succeeded}')
     print(f'failed={result.failed}')
+    print(f'history_failures={result.history_failures}')
 
 
 def _source_dispatch(sync_mode):
@@ -1135,7 +1142,7 @@ def main():
         ) if sync_mode == 'apply' else None
         result = run_sources(configs, dispatch.execute, run_repository=history)
         _print_multi_source_result(result)
-        if result.failed:
+        if result.failed or result.history_failures:
             raise SystemExit(1)
         return
 
