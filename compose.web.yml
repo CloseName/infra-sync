@@ -100,6 +100,7 @@ services:
               --api-uid, "10001", --child-uid, "10001", --child-gid, "10001"]
     environment:
       INFRA_SYNC_APPLY_REGISTRY_DSN: ${INFRA_SYNC_APPLY_REGISTRY_DSN:-}
+      INFRA_SYNC_RUN_WRITER_DSN: ${INFRA_SYNC_RUN_WRITER_DSN:-}
       INFRA_SYNC_REGISTRY_SCHEMA: ${INFRA_SYNC_REGISTRY_SCHEMA:-}
       INFRA_SYNC_APPLY_NB_API_URL: ${INFRA_SYNC_APPLY_NB_API_URL:-}
     volumes:

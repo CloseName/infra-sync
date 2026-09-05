@@ -1,6 +1,8 @@
 """Explicit public DTOs; no ORM/configuration objects are exposed."""
 
+from datetime import datetime
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -210,3 +212,61 @@ class ApplyResultDTO(PublicModel):
 
     status: Literal['SUCCEEDED', 'FAILED_BEFORE_WRITE', 'PARTIALLY_APPLIED', 'OUTCOME_UNCERTAIN']
     plan_digest: str = Field(pattern=r'^[a-f0-9]{64}$')
+    run_id: UUID | None = None
+
+
+class RunActionSummaryDTO(PublicModel):
+    """Canonical plan action totals."""
+
+    create: int = Field(ge=0)
+    update: int = Field(ge=0)
+    no_change: int = Field(ge=0)
+    review_required: int = Field(ge=0)
+    blocked: int = Field(ge=0)
+    ignored: int = Field(ge=0)
+    unsupported: int = Field(ge=0)
+    retain_only: int = Field(ge=0)
+
+
+class SyncRunDTO(PublicModel):
+    """Explicit safe synchronization history projection."""
+
+    run_id: UUID
+    source_instance: str = Field(pattern=r'^[a-z0-9][a-z0-9._-]{1,62}$')
+    source_type: Literal['proxmox', 'esxi']
+    trigger: Literal['manual', 'scheduled']
+    status: Literal['RUNNING', 'SUCCEEDED', 'FAILED_BEFORE_WRITE', 'PARTIALLY_APPLIED',
+                    'OUTCOME_UNCERTAIN', 'BLOCKED', 'LOCKED', 'FAILED']
+    started_at: datetime
+    finished_at: datetime | None
+    duration_ms: int | None = Field(default=None, ge=0)
+    plan_digest: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    planner_version: str | None = Field(default=None, max_length=128)
+    actions: RunActionSummaryDTO
+    error_code: Literal['APPLY_LOCKED', 'PLAN_BLOCKED', 'PLAN_STALE',
+                        'CONFIRMATION_EXPIRED', 'CONFIRMATION_INVALID',
+                        'CONFIRMATION_SOURCE_MISMATCH', 'FAILED_BEFORE_WRITE',
+                        'PARTIALLY_APPLIED', 'OUTCOME_UNCERTAIN', 'APPLY_FAILED'] | None
+    error_message_safe: str | None = Field(default=None, max_length=256)
+    created_by: str = Field(min_length=1, max_length=128)
+
+    @classmethod
+    def from_record(cls, record):
+        """Allowlist persisted fields and exclude every internal value."""
+        return cls(
+            run_id=str(record.run_id), source_instance=record.source_instance,
+            source_type=record.source_type, trigger=record.trigger.value,
+            status=record.status.value, started_at=record.started_at,
+            finished_at=record.finished_at, duration_ms=record.duration_ms,
+            plan_digest=record.plan_digest, planner_version=record.planner_version,
+            actions=RunActionSummaryDTO(**record.counts.__dict__),
+            error_code=record.error_code, error_message_safe=record.error_message_safe,
+            created_by=record.created_by,
+        )
+
+
+class SyncRunListDTO(PublicModel):
+    """Compact bounded history page."""
+
+    runs: list[SyncRunDTO]
+    next_cursor: str | None = None

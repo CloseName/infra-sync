@@ -6,10 +6,10 @@ import logging
 from functools import partial
 from datetime import datetime, timezone
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +18,7 @@ from starlette.exceptions import HTTPException
 from ..application.health import SystemHealthService
 from ..application.sources import SourceReadError, SourceVisibilityService
 from ..application.sources import source_view
+from ..application.runs import RunHistoryService, RunReadError
 from ..application.onboarding import EphemeralOnboardingStore, OnboardingError, SourceOnboardingService
 from .database import PostgresHealthProbe
 from .dto import ErrorDTO, ErrorDetailDTO, LivenessDTO, SystemHealthDTO, VersionDTO
@@ -25,12 +26,13 @@ from .settings import ApiSettings, application_version
 from .source_reader import PostgresSourceReader
 from .dto import (ApplyRequestDTO, ApplyResultDTO, ConfirmationDTO, ConfirmationRequestDTO,
                   DiscoveryResultDTO, SourceDTO, SourceListDTO, SyncPlanDTO)
-from .dto import SyncPlanRequestDTO
+from .dto import SyncPlanRequestDTO, SyncRunDTO, SyncRunListDTO
 from .discovery_client import DiscoveryRequestError, DiscoveryWorkerClient
 from .apply_client import ApplyRequestError, ApplyWorkerClient
 from .onboarding_dto import ConnectionRequest, ConnectionResult, RegistrationRequest
 from .onboarding_dto import CancellationRequest, CancellationResult
 from .onboarding_adapters import BrokerSecretStore, RegistrationRegistry, test_esxi, test_proxmox
+from .run_reader import PostgresRunReader
 
 LOGGER = logging.getLogger('infra_sync.api')
 
@@ -98,11 +100,22 @@ def _install_boundaries(app, settings):
         }
         return _error(request, statuses.get(exc.code, 503), exc.code, 'Manual sync request failed')
 
+    @app.exception_handler(RunReadError)
+    async def run_read_error(request, exc):
+        errors = {
+            'RUN_NOT_FOUND': (404, 'Synchronization run not found'),
+            'RUN_FILTER_INVALID': (422, 'Synchronization history filter is invalid'),
+            'RUN_HISTORY_UNAVAILABLE': (503, 'Synchronization history is unavailable'),
+        }
+        status, message = errors[exc.code.value]
+        return _error(request, status, exc.code.value, message)
+
     @app.middleware('http')
     async def request_boundary(request: Request, call_next):
         # Never trust/re-emit client correlation headers, URLs, query or body.
         request.state.request_id = str(uuid4())
         request.state.error_code = None
+        request.state.run_id = None
         try:
             if request.method == 'POST' and (
                     request.url.path in (
@@ -139,7 +152,7 @@ def _install_boundaries(app, settings):
             'level': 'ERROR' if response.status_code >= 500 else 'INFO',
             'component': 'api',
             'request_id': request.state.request_id,
-            'run_id': None,
+            'run_id': request.state.run_id,
             'source_instance': None,
             'error_code': request.state.error_code,
             'message': 'HTTP request completed',
@@ -160,7 +173,7 @@ def _install_boundaries(app, settings):
 
 
 def create_app(settings=None, service=None, source_service=None, onboarding_service=None,
-               discovery_client=None, apply_client=None):
+               discovery_client=None, apply_client=None, run_service=None):
     """Construct without DB access; all environment reading is confined to bootstrap."""
     if not LOGGER.handlers:
         LOGGER.addHandler(logging.StreamHandler())
@@ -178,6 +191,7 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
     )
     discovery_client = discovery_client or DiscoveryWorkerClient(settings.discovery_socket)
     apply_client = apply_client or ApplyWorkerClient(settings.apply_socket)
+    run_service = run_service or RunHistoryService(PostgresRunReader(settings))
     app = FastAPI(title='Infra Sync', version=application_version(),
                   docs_url=None, redoc_url=None, openapi_url=None, debug=False)
     _install_boundaries(app, settings)
@@ -194,6 +208,24 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
     @router.get('/version', response_model=VersionDTO)
     def version():
         return VersionDTO(version=application_version())
+
+    @router.get('/runs', response_model=SyncRunListDTO)
+    def runs(source_instance: str | None = None, source_type: str | None = None,
+             trigger: str | None = None, status: str | None = None,
+             limit: int = Query(default=50), cursor: str | None = None):
+        records = run_service.list_runs(
+            source_instance=source_instance, source_type=source_type, trigger=trigger,
+            status=status, limit=limit, cursor=cursor,
+        )
+        return SyncRunListDTO(
+            runs=[SyncRunDTO.from_record(record) for record in records],
+            next_cursor=str(records[-1].run_id) if len(records) == limit else None,
+        )
+
+    @router.get('/runs/{run_id}', response_model=SyncRunDTO)
+    def run_detail(run_id: UUID, request: Request):
+        request.state.run_id = str(run_id)
+        return SyncRunDTO.from_record(run_service.get_run(run_id))
 
     @router.get('/sources', response_model=SourceListDTO)
     def sources():
@@ -223,9 +255,11 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
         return ConfirmationDTO.model_validate(result)
 
     @router.post('/sources/{source_instance}/sync', response_model=ApplyResultDTO)
-    def apply_sync(source_instance: str, request: ApplyRequestDTO):
-        return ApplyResultDTO.model_validate(apply_client.apply(
-            source_instance, request.confirmation_token))
+    def apply_sync(source_instance: str, payload: ApplyRequestDTO, request: Request):
+        result = ApplyResultDTO.model_validate(apply_client.apply(
+            source_instance, payload.confirmation_token))
+        request.state.run_id = str(result.run_id) if result.run_id else None
+        return result
 
     @router.post('/sources/test-connection', response_model=ConnectionResult)
     def connection_test(request: ConnectionRequest):

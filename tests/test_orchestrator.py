@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 from netbox_pve_sync.orchestrator import run_sources
+from netbox_pve_sync.run_history import RunStatus
 from netbox_pve_sync.source_executor import SourceExecutorDispatch
 
 from tests.sample_data import sample_source_config
@@ -114,3 +115,52 @@ def test_run_result_never_contains_exception_or_secret_text():
     assert result.results[0].error_type == 'RuntimeError'
     assert result.results[0].started_at.tzinfo is not None
     assert result.results[0].finished_at.tzinfo is not None
+
+
+class RunRecorder:
+    def __init__(self):
+        self.started = []
+        self.finished = []
+
+    def start_run(self, source_instance, source_type, trigger, created_by):
+        run = type('Run', (), {'run_id': source_instance})()
+        self.started.append((source_instance, source_type, trigger.value, created_by))
+        return run
+
+    def finish_run(self, run_id, status, **values):
+        self.finished.append((run_id, status, values))
+
+
+def test_scheduled_sources_create_distinct_terminal_history():
+    recorder = RunRecorder()
+    sources = (source('pve-a'), source('pve-b'))
+
+    def execute(config):
+        if config.source_instance == 'pve-b':
+            raise RuntimeError('sensitive provider detail')
+        return type('Plan', (), {'items': (), 'digest': 'a' * 64,
+                                 'planner_version': 'web-5a-1'})()
+
+    result = run_sources(sources, execute, run_repository=recorder)
+    assert (result.succeeded, result.failed) == (1, 1)
+    assert [item[0] for item in recorder.finished] == ['pve-a', 'pve-b']
+    assert recorder.finished[0][1] is RunStatus.SUCCEEDED
+    assert recorder.finished[1][1] is RunStatus.FAILED
+    assert 'sensitive provider detail' not in str(recorder.finished)
+
+
+def test_two_successful_scheduled_sources_create_two_independent_runs():
+    recorder = RunRecorder()
+    result = run_sources(
+        (source('pve-a'), source('esxi-b', 'esxi')),
+        lambda _config: type('Plan', (), {
+            'items': ({'action': 'CREATE'}, {'action': 'NO_CHANGE'}),
+            'digest': 'b' * 64, 'planner_version': 'web-5a-1',
+        })(),
+        run_repository=recorder,
+    )
+    assert result.succeeded == 2
+    assert [item[0] for item in recorder.started] == ['esxi-b', 'pve-a']
+    assert [item[0] for item in recorder.finished] == ['esxi-b', 'pve-a']
+    assert all(item[1] is RunStatus.SUCCEEDED for item in recorder.finished)
+    assert all(item[2]['counts'].create == 1 for item in recorder.finished)

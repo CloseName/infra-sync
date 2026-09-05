@@ -33,6 +33,7 @@ from .netbox_vm_network_apply import apply_vm_networks
 from .netbox_lxc_apply import apply_lxc_containers
 from .netbox_lxc_network_apply import apply_lxc_networks
 from .netbox_full_apply import apply_full_sync
+from .run_history import postgres_run_repository
 
 
 VALID_SYNC_MODES = {'inventory', 'plan', 'apply'}
@@ -905,6 +906,8 @@ def execute_discovered_source(
                 'Normal ESXi apply requires APPLY_SCOPE=full. '
                 'No changes were written.'
             )
+        from .application.runtime_plan import build_runtime_plan
+        history_plan = build_runtime_plan(nb_api, hosts, source_config)
         execute_esxi_runtime(
             nb_api,
             hosts,
@@ -913,7 +916,7 @@ def execute_discovered_source(
                 os.getenv('APPLY_CONFIRM', '') == 'FULL_WRITE'
             ),
         )
-        return
+        return history_plan
 
     # Load NetBox objects
     nb_objects = _load_nb_objects(nb_api)
@@ -1013,6 +1016,8 @@ def execute_discovered_source(
             return
 
         if apply_scope == 'full':
+            from .application.runtime_plan import build_runtime_plan
+            history_plan = build_runtime_plan(nb_api, hosts, source_config)
             apply_full_sync(
                 nb_api,
                 hosts,
@@ -1025,7 +1030,7 @@ def execute_discovered_source(
                     == 'FULL_WRITE'
                 ),
             )
-            return
+            return history_plan
 
     print('=== APPLY MODE ===')
     print('WARNING: changes to NetBox are enabled.')
@@ -1124,7 +1129,11 @@ def main():
     if source_mode == REGISTRY_ALL_MODE:
         configs = load_runtime_source_configs()
         dispatch = _source_dispatch(sync_mode)
-        result = run_sources(configs, dispatch.execute)
+        history = postgres_run_repository(
+            os.environ.get('INFRA_SYNC_RUN_WRITER_DSN', ''),
+            os.environ['INFRA_SYNC_REGISTRY_SCHEMA'],
+        ) if sync_mode == 'apply' else None
+        result = run_sources(configs, dispatch.execute, run_repository=history)
         _print_multi_source_result(result)
         if result.failed:
             raise SystemExit(1)

@@ -50,9 +50,19 @@ def test_compose_keeps_apply_credentials_out_of_api_and_discovery_worker():
     discovery, apply = remainder.split('  infra-sync-apply-worker:', 1)
     apply = apply.split('\nvolumes:', 1)[0]
     assert 'INFRA_SYNC_APPLY_REGISTRY_DSN' not in api
+    assert 'INFRA_SYNC_RUN_WRITER_DSN' not in api
     assert 'netbox-apply-token' not in api
     assert 'INFRA_SYNC_APPLY_REGISTRY_DSN' not in discovery
+    assert 'INFRA_SYNC_RUN_WRITER_DSN' not in discovery
     assert 'netbox-apply-token' not in discovery
     assert 'INFRA_SYNC_REGISTRATION_DSN' not in apply
+    assert 'INFRA_SYNC_RUN_WRITER_DSN' in apply
     assert 'infra-sync-broker-socket' not in apply
     assert 'docker.sock' not in compose
+
+
+def test_scheduled_run_writer_credential_is_scoped_to_apply_override():
+    base = Path('compose.yml').read_text(encoding='utf-8')
+    apply = Path('compose.apply.yml').read_text(encoding='utf-8')
+    assert 'INFRA_SYNC_RUN_WRITER_DSN' not in base
+    assert 'INFRA_SYNC_RUN_WRITER_DSN' in apply

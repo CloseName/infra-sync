@@ -11,8 +11,8 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.dialects import postgresql
 
 
-def _revision():
-    return ScriptDirectory.from_config(Config('alembic.ini')).get_revision('head').module
+def _revision(revision='0001_registry_baseline'):
+    return ScriptDirectory.from_config(Config('alembic.ini')).get_revision(revision).module
 
 
 def _snapshot():
@@ -46,6 +46,14 @@ def test_catalog_has_single_forward_only_baseline():
     revision = _revision()
     assert revision.revision == '0001_registry_baseline'
     assert revision.down_revision is None
+    with pytest.raises(RuntimeError, match='Downgrade'):
+        revision.downgrade('infra_sync_test')
+
+
+def test_history_revision_is_additive_and_forward_only():
+    revision = _revision('head')
+    assert revision.revision == '0002_sync_run_history'
+    assert revision.down_revision == '0001_registry_baseline'
     with pytest.raises(RuntimeError, match='Downgrade'):
         revision.downgrade('infra_sync_test')
 

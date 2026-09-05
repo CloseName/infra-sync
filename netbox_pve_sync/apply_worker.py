@@ -21,6 +21,8 @@ import psycopg
 from .application.confirmation import ConfirmationClaims, ConfirmationError, ConfirmationStore
 from .discovery_worker import (_bounded_secret, _child_config, _config_payload, _drop_privileges,
                                _safe_environment)
+from .run_history import (ActionCounts, RunStatus, RunTrigger, postgres_run_repository,
+                          safe_error_code, safe_error_message, terminal_status)
 from .source_config import SOURCE_INSTANCE_PATTERN
 from .source_registry import SourceRegistry
 
@@ -65,23 +67,8 @@ def _discover(payload):
 
 
 def _plan(nb_api, hosts, config):
-    from .application.discovery_review import build_esxi_review, build_proxmox_review
-    from .application.planning_netbox import PlanningNetBox
-    from .application.sync_plan import plan_from_mutations, plan_from_review
-    from .esxi_adoption import build_esxi_adoption_plan
-    from .esxi_runtime import execute_esxi_runtime
-    from .netbox_full_apply import apply_full_sync
-    review = (build_proxmox_review(nb_api, hosts, config) if config.source_type == 'proxmox'
-              else build_esxi_review(build_esxi_adoption_plan(nb_api, hosts, config), config))
-    review_plan = plan_from_review(review, config)
-    if not review_plan.apply_allowed:
-        return review_plan
-    planning_api = PlanningNetBox(nb_api)
-    if config.source_type == 'proxmox':
-        apply_full_sync(planning_api, hosts, config.target, confirmed=True)
-    else:
-        execute_esxi_runtime(planning_api, hosts, config, confirmed=True)
-    return plan_from_mutations(review, config, planning_api.mutations)
+    from .application.runtime_plan import build_runtime_plan
+    return build_runtime_plan(nb_api, hosts, config)
 
 
 def execute_child(payload):
@@ -111,7 +98,9 @@ def execute_child(payload):
             execute_esxi_runtime(nb_api, hosts, config, confirmed=True)
     except Exception as exc:
         raise ApplyWorkerError('OUTCOME_UNCERTAIN') from exc
-    return {'status': 'SUCCEEDED', 'plan_digest': plan.digest}
+    return {'status': 'SUCCEEDED', 'plan_digest': plan.digest,
+            'planner_version': plan.planner_version,
+            'action_counts': ActionCounts.from_items(plan.items).__dict__}
 
 
 def child_main():
@@ -133,13 +122,14 @@ class ApplySupervisor:
 
     def __init__(self, dsn, schema, secret_root, source_secret_root, netbox_url,
                  netbox_token_file, lock_path, child_uid=10001, child_gid=10001,
-                 popen=subprocess.Popen, confirmations=None):
+                 popen=subprocess.Popen, confirmations=None, run_repository=None):
         self._dsn, self._schema = dsn, schema
         self._secret_root, self._source_secret_root = secret_root, source_secret_root
         self._netbox_url, self._netbox_token_file = netbox_url, netbox_token_file
         self._lock_path = lock_path
         self._child_uid, self._child_gid, self._popen = child_uid, child_gid, popen
         self._confirmations = confirmations or ConfirmationStore()
+        self._runs = run_repository
 
     def _source(self, instance):
         try:
@@ -226,26 +216,67 @@ class ApplySupervisor:
 
     def apply(self, instance, token):
         """Consume, lock, reload and recompute before any write."""
-        try:
-            claims = self._confirmations.consume(token, instance)
-        except ConfirmationError as exc:
-            raise ApplyWorkerError(exc.code) from exc
-        import fcntl  # pylint: disable=import-outside-toplevel
-        lock_fd = os.open(self._lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        config = self._source(instance)
+        run = self._runs.start_run(
+            instance, config.source_type, RunTrigger.MANUAL, 'web/manual',
+        ) if self._runs else None
+        claims = None
+        apply_started = False
         try:
             try:
-                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                claims = self._confirmations.consume(token, instance)
+            except ConfirmationError as exc:
+                raise ApplyWorkerError(exc.code) from exc
+            import fcntl  # pylint: disable=import-outside-toplevel
+            try:
+                lock_fd = os.open(
+                    self._lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600,
+                )
             except OSError:
-                raise ApplyWorkerError('APPLY_LOCKED') from None
-            config = self._source(instance)
-            if config.id != claims.source_id:
-                raise ApplyWorkerError('PLAN_STALE')
-            result = self._child(self._payload(config, 'apply', claims.plan_digest))
-            if result.get('plan_digest') != claims.plan_digest:
-                raise ApplyWorkerError('PLAN_STALE')
+                raise ApplyWorkerError('FAILED_BEFORE_WRITE') from None
+            try:
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    raise ApplyWorkerError('APPLY_LOCKED') from None
+                config = self._source(instance)
+                if config.id != claims.source_id:
+                    raise ApplyWorkerError('PLAN_STALE')
+                apply_started = True
+                result = self._child(self._payload(config, 'apply', claims.plan_digest))
+                if result.get('plan_digest') != claims.plan_digest:
+                    raise ApplyWorkerError('PLAN_STALE')
+            finally:
+                os.close(lock_fd)
+            counts = ActionCounts(**result.pop('action_counts', {}))
+            if run:
+                self._runs.finish_run(
+                    run.run_id, RunStatus.SUCCEEDED, counts, result['plan_digest'],
+                    result.get('planner_version'),
+                )
+                result['run_id'] = str(run.run_id)
+            result.pop('planner_version', None)
             return result
-        finally:
-            os.close(lock_fd)
+        except ApplyWorkerError as exc:
+            if run:
+                code = safe_error_code(exc.code)
+                self._runs.finish_run(
+                    run.run_id, terminal_status(code),
+                    plan_digest=claims.plan_digest if claims else None,
+                    planner_version=claims.planner_version if claims else None,
+                    error_code=code, error_message_safe=safe_error_message(code),
+                )
+            raise
+        except Exception as exc:
+            code = 'OUTCOME_UNCERTAIN' if apply_started else 'APPLY_FAILED'
+            if run:
+                self._runs.finish_run(
+                    run.run_id, terminal_status(code),
+                    plan_digest=claims.plan_digest if claims else None,
+                    planner_version=claims.planner_version if claims else None,
+                    error_code=code, error_message_safe=safe_error_message(code),
+                )
+            raise ApplyWorkerError(code) from exc
 
 
 def _receive(connection):
@@ -338,7 +369,11 @@ def main():
         os.environ.get('INFRA_SYNC_APPLY_REGISTRY_DSN', ''),
         os.environ.get('INFRA_SYNC_REGISTRY_SCHEMA', ''), args.secret_root,
         args.source_secret_root, os.environ.get('INFRA_SYNC_APPLY_NB_API_URL', ''),
-        args.netbox_token_file, args.lock_path, args.child_uid, args.child_gid)
+        args.netbox_token_file, args.lock_path, args.child_uid, args.child_gid,
+        run_repository=postgres_run_repository(
+            os.environ.get('INFRA_SYNC_RUN_WRITER_DSN', ''),
+            os.environ.get('INFRA_SYNC_REGISTRY_SCHEMA', ''),
+        ))
     serve(args.socket, supervisor, args.api_uid)
 
 

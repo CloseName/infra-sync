@@ -58,7 +58,15 @@ def test_existing_populated_registry_is_preserved(migration_database):
     with engine.connect() as connection:
         marker = sa.Table('alembic_version', sa.MetaData(), schema=registry.schema,
                           autoload_with=connection)
-        assert connection.execute(sa.select(marker.c.version_num)).scalar_one() == '0001_registry_baseline'
+        assert connection.execute(sa.select(marker.c.version_num)).scalar_one() == '0002_sync_run_history'
+        inspector = sa.inspect(connection)
+        assert inspector.has_table('sync_runs', schema=registry.schema)
+        assert inspector.get_foreign_keys('sync_runs', schema=registry.schema) == []
+        assert {item['name'] for item in inspector.get_indexes(
+            'sync_runs', schema=registry.schema)} >= {
+                'ix_sync_runs_started_at', 'ix_sync_runs_source_started',
+                'ix_sync_runs_status', 'ix_sync_runs_trigger',
+            }
 
 
 def test_unknown_version_rolls_back_version_table(migration_database):

@@ -161,8 +161,7 @@ def execute_child(payload):
     import pynetbox
     from proxmoxer import ProxmoxAPI
     from .application.discovery_review import build_esxi_review, build_proxmox_review
-    from .application.planning_netbox import PlanningNetBox
-    from .application.sync_plan import plan_from_mutations, plan_from_review
+    from .application.runtime_plan import build_runtime_plan
     from .esxi_adoption import build_esxi_adoption_plan
     from .esxi_client import EsxiClient
     from .esxi_discovery import discover_hosts as discover_esxi
@@ -190,17 +189,7 @@ def execute_child(payload):
     else:
         raise WorkerError('DISCOVERY_FAILED')
     if payload.get('operation') == 'plan':
-        from .esxi_runtime import execute_esxi_runtime
-        from .netbox_full_apply import apply_full_sync
-        review_plan = plan_from_review(review, config)
-        if not review_plan.apply_allowed:
-            return {**review_plan.canonical_dict(), 'digest': review_plan.digest}
-        planning_api = PlanningNetBox(nb_api)
-        if config.source_type == 'proxmox':
-            apply_full_sync(planning_api, hosts, config.target, confirmed=True)
-        else:
-            execute_esxi_runtime(planning_api, hosts, config, confirmed=True)
-        plan = plan_from_mutations(review, config, planning_api.mutations)
+        plan = build_runtime_plan(nb_api, hosts, config)
         return {**plan.canonical_dict(), 'digest': plan.digest}
     return asdict(review)
 

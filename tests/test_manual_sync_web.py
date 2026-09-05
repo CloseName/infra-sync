@@ -1,5 +1,8 @@
 """WEB-5 HTTP boundary accepts only exact-plan capabilities."""
 
+import json
+import logging
+
 from fastapi.testclient import TestClient
 
 from netbox_pve_sync.api.app import create_app
@@ -32,24 +35,30 @@ class Apply:
 
     def apply(self, instance, token):
         self.calls.append(('apply', instance, token))
-        return {'status': 'SUCCEEDED', 'plan_digest': 'a' * 64}
+        return {'status': 'SUCCEEDED', 'plan_digest': 'a' * 64,
+                'run_id': '11111111-1111-4111-8111-111111111111'}
 
 
-def test_plan_prepare_apply_flow_and_payload_boundaries():
+def test_plan_prepare_apply_flow_and_payload_boundaries(caplog):
     worker = Apply()
     api = TestClient(create_app(ApiSettings(allowed_write_hosts=('localhost:8000',)),
                                 discovery_client=Discovery(), apply_client=worker))
-    planned = api.post('/api/v1/sources/pve-test/sync-plan', headers=HEADERS, json={})
-    assert planned.status_code == 200
-    assert 'source_id' not in planned.json()
-    prepared = api.post('/api/v1/sources/pve-test/sync-confirmations', headers=HEADERS,
-                        json={'plan_digest': 'a' * 64, 'confirmed': True})
-    assert prepared.status_code == 200
-    applied = api.post('/api/v1/sources/pve-test/sync', headers=HEADERS,
-                       json={'confirmation_token': 'b' * 64})
+    with caplog.at_level(logging.INFO, logger='infra_sync.api'):
+        planned = api.post('/api/v1/sources/pve-test/sync-plan', headers=HEADERS, json={})
+        assert planned.status_code == 200
+        assert 'source_id' not in planned.json()
+        prepared = api.post('/api/v1/sources/pve-test/sync-confirmations', headers=HEADERS,
+                            json={'plan_digest': 'a' * 64, 'confirmed': True})
+        assert prepared.status_code == 200
+        applied = api.post('/api/v1/sources/pve-test/sync', headers=HEADERS,
+                           json={'confirmation_token': 'b' * 64})
     assert applied.status_code == 200
+    assert applied.json()['run_id'] == '11111111-1111-4111-8111-111111111111'
     assert worker.calls == [('prepare', 'pve-test', 'a' * 64),
                             ('apply', 'pve-test', 'b' * 64)]
+    records = [json.loads(record.message) for record in caplog.records
+               if record.name == 'infra_sync.api']
+    assert records[-1]['run_id'] == applied.json()['run_id']
 
 
 def test_client_cannot_submit_operations_or_skip_same_origin_boundary():
