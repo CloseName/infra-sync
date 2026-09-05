@@ -80,9 +80,9 @@ def _find_device_match(nb_objects: dict, host):
     )
 
     if device is not None:
-        return (
-            device,
-            'normalized_name',
+        raise RuntimeError(
+            f'Device adoption candidate exists without sync identity: '
+            f'{host.normalized_name!r}'
         )
 
     return None, None

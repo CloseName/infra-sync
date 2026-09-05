@@ -67,17 +67,18 @@ class FakeSecrets:
         del self.values[receipt.key]
 
 
-def command(token, source_type='proxmox'):
+def command(token, source_type='proxmox', source_instance='new-source',
+            address='source.test'):
     return RegistrationRequest(
-        onboarding_token=token, source_type=source_type, source_instance='new-source', name='New source',
-        address='source.test', verify_ssl=True, sync_interval_seconds=600, site_slug='test', cluster_name='Test',
+        onboarding_token=token, source_type=source_type, source_instance=source_instance, name='New source',
+        address=address, verify_ssl=True, sync_interval_seconds=600, site_slug='test', cluster_name='Test',
         platform_slug='platform', device_role_slug='host', device_type_slug='server', cluster_type_slug='cluster',
         confirm_sync_disabled=True,
     ).command()
 
 
-def credentials(source_type='proxmox'):
-    return PendingCredentials(source_type, 'source.test', True, 'user@realm', 'token-name', SECRET)
+def credentials(source_type='proxmox', address='source.test'):
+    return PendingCredentials(source_type, address, True, 'user@realm', 'token-name', SECRET)
 
 
 def service():
@@ -101,6 +102,28 @@ def test_successful_registration_defaults_and_references(source_type):
     assert SECRET not in repr(credentials(source_type))
     if source_type == 'esxi':
         assert result.credentials.token_id == result.credentials.token_secret
+
+
+def test_two_proxmox_sources_receive_distinct_secret_references():
+    instance, registry, store = service()
+    first_token = instance.test_connection(credentials(address='pve-a.test'))
+    first = instance.register(command(
+        first_token, source_instance='pve-a', address='pve-a.test',
+    ))
+    second_token = instance.test_connection(credentials(address='pve-a-2.test'))
+    second = instance.register(command(
+        second_token, source_instance='pve-a-2', address='pve-a-2.test',
+    ))
+
+    first_keys = {
+        first.credentials.token_id.key, first.credentials.token_secret.key,
+    }
+    second_keys = {
+        second.credentials.token_id.key, second.credentials.token_secret.key,
+    }
+    assert first_keys.isdisjoint(second_keys)
+    assert set(registry.records) == {'pve-a', 'pve-a-2'}
+    assert set(store.values) == first_keys | second_keys
 
 
 def test_duplicate_is_rejected_without_new_secret_or_mutation():

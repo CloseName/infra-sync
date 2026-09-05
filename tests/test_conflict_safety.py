@@ -8,6 +8,8 @@ from netbox_pve_sync.netbox_vm_apply import (
     VMApplyError,
     apply_virtual_machines,
 )
+from netbox_pve_sync.netbox_apply import HostApplyError, _resolve_device
+from netbox_pve_sync.netbox_planner import _find_device_match
 from netbox_pve_sync.netbox_vm_network_apply import (
     VMNetworkApplyError,
     apply_vm_networks,
@@ -114,6 +116,7 @@ def test_name_only_adoption_candidate_blocks_vm_apply(fake_netbox):
     _netbox_vm(
         fake_netbox,
         cluster,
+        name='QEMU-100',
         custom_fields={},
     )
 
@@ -126,6 +129,26 @@ def test_name_only_adoption_candidate_blocks_vm_apply(fake_netbox):
         )
 
     assert fake_netbox.mutations == []
+
+
+def test_case_only_name_match_never_adopts_proxmox_host(fake_netbox):
+    site, _, cluster, _ = add_target(fake_netbox)
+    fake_netbox.dcim.devices.add(FakeRecord(
+        id=20, name='node-a', site=site, cluster=cluster, custom_fields={},
+    ))
+
+    with pytest.raises(HostApplyError, match='adoption candidate'):
+        _resolve_device(fake_netbox, _hosts()[0], site)
+
+    assert fake_netbox.mutations == []
+
+
+def test_legacy_host_planner_also_rejects_name_only_match():
+    host = _hosts()[0]
+    candidate = FakeRecord(id=20, name='node-a', custom_fields={})
+
+    with pytest.raises(RuntimeError, match='adoption candidate'):
+        _find_device_match({'devices': {'node-a': candidate}}, host)
 
 
 @pytest.mark.parametrize(

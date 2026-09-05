@@ -92,7 +92,8 @@ def lxc_source_identity(container):
 def qemu_nic_source_identity(vm, nic):
     """Build a node-independent QEMU NIC identity."""
 
-    return _identity(vm, 'qemu-nic', f'{vm.vmid}:{nic.name}')
+    nic_id = getattr(nic, 'external_id', None) or nic.name
+    return _identity(vm, 'qemu-nic', f'{vm.vmid}:{nic_id}')
 
 
 def virtual_machine_source_identity(vm):
@@ -117,7 +118,8 @@ def virtual_machine_nic_source_identity(vm, nic):
 def lxc_nic_source_identity(container, nic):
     """Build a node-independent LXC NIC identity."""
 
-    return _identity(container, 'lxc-nic', f'{container.vmid}:{nic.name}')
+    nic_id = getattr(nic, 'external_id', None) or nic.name
+    return _identity(container, 'lxc-nic', f'{container.vmid}:{nic_id}')
 
 
 def original_name_key(identity):

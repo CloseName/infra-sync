@@ -1,5 +1,7 @@
 """Migration compatibility and fail-closed SourceIdentity v2 behavior."""
 
+from dataclasses import replace
+
 from netbox_pve_sync.netbox_disappearance import report_missing_managed_objects
 from netbox_pve_sync.netbox_vm_apply import apply_virtual_machines
 from netbox_pve_sync.netbox_vm_metadata import (
@@ -126,3 +128,18 @@ def test_node_migration_reuses_migrated_vm_and_disappearance_stays_clean(
     assert 'DISAPPEARANCE STATUS CLEAN' in output
     assert 'WARNING MISSING GUEST' not in output
     assert fake_netbox.mutation_count('delete') == 0
+
+
+def test_non_owner_second_proxmox_source_cannot_claim_legacy_identity():
+    legacy_fields = vm_identity()
+    owner_vm = _hosts()[0].virtual_machines[0]
+    second_config = replace(
+        sample_source_config(), id='pve-second', source_instance='pve-second',
+        legacy_identity_owner=False,
+    )
+    second_vm = discover_hosts(
+        FakeProxmox(proxmox_responses()), second_config,
+    )[0].virtual_machines[0]
+
+    assert matches_vm_sync_identity(legacy_fields, owner_vm)
+    assert not matches_vm_sync_identity(legacy_fields, second_vm)

@@ -159,12 +159,12 @@ def _resolve_device(
             reason = 'management_ip'
 
         else:
-            # 3. Name fallback
+            # A name is useful conflict evidence, never ownership evidence.
             name_matches = [
                 candidate
                 for candidate in devices
-                if candidate.name
-                == host.normalized_name
+                if candidate.name.casefold()
+                == host.normalized_name.casefold()
             ]
 
             if len(name_matches) > 1:
@@ -174,11 +174,13 @@ def _resolve_device(
                     f'matches={len(name_matches)}'
                 )
 
-            if not name_matches:
-                return None, None
+            if name_matches:
+                raise HostApplyError(
+                    f'Device adoption candidate exists without sync identity: '
+                    f'{host.normalized_name!r}'
+                )
 
-            device = name_matches[0]
-            reason = 'normalized_name'
+            return None, None
 
     data = device.serialize()
 

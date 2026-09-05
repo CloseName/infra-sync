@@ -1,3 +1,8 @@
+"""Map Proxmox VE API inventory into provider-neutral discovery models."""
+
+import logging
+import re
+
 from .discovery import (
     DiscoveredCPU,
     DiscoveredDisk,
@@ -5,6 +10,50 @@ from .discovery import (
     DiscoveredStorage,
     DiscoveredHostInterface,
 )
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _validated_vmid(value):
+    """Return one positive unambiguous Proxmox VMID."""
+
+    if isinstance(value, bool):
+        raise ValueError('Proxmox VMID must be a positive integer')
+    if isinstance(value, int):
+        result = value
+    elif isinstance(value, str) and re.fullmatch(r'[1-9][0-9]*', value):
+        result = int(value)
+    else:
+        raise ValueError('Proxmox VMID must be a positive integer')
+    if result <= 0:
+        raise ValueError('Proxmox VMID must be a positive integer')
+    return result
+
+
+def _workload_status(value):
+    """Map provider status into the closed shared status vocabulary."""
+
+    return {
+        'running': 'running',
+        'stopped': 'stopped',
+        'paused': 'paused',
+        'suspended': 'paused',
+    }.get(str(value), 'stopped')
+
+
+def _config_flag(value):
+    """Normalize the bounded boolean forms returned by Proxmox config."""
+
+    return value is True or str(value).strip().lower() in {'1', 'true', 'on'}
+
+
+def _warn_malformed(kind, source_config):
+    LOGGER.warning(
+        'Ignoring malformed Proxmox %s during discovery',
+        kind,
+        extra={'source_instance': source_config.source_instance},
+    )
 
 
 
@@ -51,23 +100,14 @@ def _discover_host_interfaces(pve_api, node_name):
             DiscoveredHostInterface(
                 name=name,
                 interface_type=raw.get('type'),
-                active=str(raw.get('active', 0)) == '1',
-                autostart=str(
-                    raw.get('autostart', 0)
-                ) == '1',
+                active=_config_flag(raw.get('active', 0)),
+                autostart=_config_flag(raw.get('autostart', 0)),
                 method=raw.get('method'),
                 addresses=addresses,
                 gateway=raw.get('gateway'),
                 bridge_ports=bridge_ports,
                 vlan_id=vlan_id,
-                vlan_aware=(
-                    str(
-                        raw.get(
-                            'bridge_vlan_aware',
-                            0,
-                        )
-                    ) == '1'
-                ),
+                vlan_aware=_config_flag(raw.get('bridge_vlan_aware', 0)),
                 comments=(
                     str(raw.get('comments')).strip()
                     if raw.get('comments')
@@ -234,14 +274,20 @@ def _discover_virtual_machines(
     discovered_vms = []
 
     for vm in pve_api.nodes(node_name).qemu.get():
-        vmid = int(vm['vmid'])
-        config = pve_api.nodes(node_name).qemu(vmid).config.get()
-
-        sockets = int(config.get('sockets', 1))
-        cores = int(config.get('cores', 1))
-        vcpus = int(config.get('vcpus', sockets * cores))
-
-        memory_mib = int(config.get('memory', 0))
+        try:
+            vmid = _validated_vmid(vm.get('vmid'))
+            config = pve_api.nodes(node_name).qemu(vmid).config.get()
+            if not isinstance(config, dict):
+                raise ValueError('Proxmox QEMU config must be an object')
+            sockets = int(config.get('sockets', 1))
+            cores = int(config.get('cores', 1))
+            vcpus = int(config.get('vcpus', sockets * cores))
+            memory_mib = int(config.get('memory', 0))
+            if min(sockets, cores, vcpus, memory_mib) < 0:
+                raise ValueError('Proxmox QEMU resources cannot be negative')
+        except (AttributeError, KeyError, TypeError, ValueError):
+            _warn_malformed('QEMU VM', source_config)
+            continue
 
         interfaces = []
 
@@ -255,7 +301,11 @@ def _discover_virtual_machines(
                 .get()
             )
 
+            if not isinstance(agent_result, dict):
+                raise ValueError('QEMU guest agent response must be an object')
             for agent_interface in agent_result.get('result', []):
+                if not isinstance(agent_interface, dict):
+                    continue
                 mac = str(
                     agent_interface.get('hardware-address', '')
                 ).lower()
@@ -285,11 +335,15 @@ def _discover_virtual_machines(
 
                 agent_by_mac[mac] = ips
 
-        except ResourceException:
+        except (ResourceException, AttributeError, TypeError, ValueError):
             pass
 
         for key, raw_value in config.items():
-            if not str(key).startswith('net'):
+            key = str(key)
+            if not re.fullmatch(r'net[0-9]+', key):
+                continue
+            if not isinstance(raw_value, str) or not raw_value.strip():
+                _warn_malformed('QEMU NIC', source_config)
                 continue
 
             definition = _parse_config_definition(raw_value)
@@ -310,13 +364,14 @@ def _discover_virtual_machines(
 
             interfaces.append(
                 DiscoveredInterface(
-                    name=str(key),
+                    name=key,
                     mac_address=mac,
                     bridge=definition.get('bridge'),
                     vlan_id=vlan_id,
                     ip_addresses=agent_by_mac.get(
                         str(mac).lower(), []
                     ) if mac else [],
+                    external_id=key,
                 )
             )
 
@@ -382,10 +437,10 @@ def _discover_virtual_machines(
                 # Naming policy will be implemented separately.
                 normalized_name=original_name,
 
-                status=str(vm.get('status', 'unknown')),
+                status=_workload_status(vm.get('status')),
                 vcpus=vcpus,
                 memory_bytes=memory_mib * 1024 ** 2,
-                autostart=str(config.get('onboot', '0')) == '1',
+                autostart=_config_flag(config.get('onboot', 0)),
                 disks=disks,
                 interfaces=interfaces,
             )
@@ -408,20 +463,33 @@ def _discover_containers(
     discovered_containers = []
 
     for container in pve_api.nodes(node_name).lxc.get():
-        vmid = int(container['vmid'])
-
-        config = (
-            pve_api.nodes(node_name)
-            .lxc(vmid)
-            .config.get()
-        )
+        try:
+            vmid = _validated_vmid(container.get('vmid'))
+            config = (
+                pve_api.nodes(node_name)
+                .lxc(vmid)
+                .config.get()
+            )
+            if not isinstance(config, dict):
+                raise ValueError('Proxmox LXC config must be an object')
+            vcpus = int(config.get('cores', 1))
+            memory_mib = int(config.get('memory', 0))
+            swap_mib = int(config.get('swap', 0))
+            if min(vcpus, memory_mib, swap_mib) < 0:
+                raise ValueError('Proxmox LXC resources cannot be negative')
+        except (AttributeError, KeyError, TypeError, ValueError):
+            _warn_malformed('LXC container', source_config)
+            continue
 
         interfaces = []
 
         for key, raw_value in config.items():
             key = str(key)
 
-            if not key.startswith('net'):
+            if not re.fullmatch(r'net[0-9]+', key):
+                continue
+            if not isinstance(raw_value, str) or not raw_value.strip():
+                _warn_malformed('LXC NIC', source_config)
                 continue
 
             definition = _parse_config_definition(raw_value)
@@ -448,6 +516,7 @@ def _discover_containers(
                     bridge=definition.get('bridge'),
                     vlan_id=vlan_id,
                     ip_addresses=ip_addresses,
+                    external_id=key,
                 )
             )
 
@@ -502,27 +571,17 @@ def _discover_containers(
                 original_name=original_name,
                 normalized_name=original_name,
 
-                status=str(
-                    container.get('status', 'unknown')
-                ),
+                status=_workload_status(container.get('status')),
                 architecture=config.get('arch'),
                 os_type=config.get('ostype'),
 
-                vcpus=int(config.get('cores', 1)),
-                memory_bytes=int(
-                    config.get('memory', 0)
-                ) * 1024 ** 2,
-                swap_bytes=int(
-                    config.get('swap', 0)
-                ) * 1024 ** 2,
+                vcpus=vcpus,
+                memory_bytes=memory_mib * 1024 ** 2,
+                swap_bytes=swap_mib * 1024 ** 2,
 
-                autostart=str(
-                    config.get('onboot', '0')
-                ) == '1',
+                autostart=_config_flag(config.get('onboot', 0)),
 
-                unprivileged=str(
-                    config.get('unprivileged', '0')
-                ) == '1',
+                unprivileged=_config_flag(config.get('unprivileged', 0)),
 
                 disks=disks,
                 interfaces=interfaces,

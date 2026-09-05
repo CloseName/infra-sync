@@ -2,6 +2,7 @@ from .netbox_vm_metadata import (
     vm_identity_source_id,
 )
 from .source_identity import (
+    SourceIdentity,
     lxc_nic_source_identity,
     merge_original_name,
     merge_source_identities,
@@ -46,12 +47,34 @@ def nic_sync_identity_match_rank(custom_fields, vm, nic):
         if hasattr(vm, 'architecture')
         else virtual_machine_nic_source_identity
     )
-    return source_identity_match_rank(
+    desired = builder(vm, nic)
+    rank = source_identity_match_rank(
         custom_fields,
-        builder(vm, nic),
+        desired,
         (wanted,),
         vm.legacy_identity_owner,
     )
+    stable_key = getattr(nic, 'external_id', None)
+    if (
+        rank
+        or desired.type != 'proxmox'
+        or desired.kind != 'lxc-nic'
+        or not stable_key
+        or str(stable_key) == str(nic.name)
+    ):
+        return rank
+
+    # PHASE 2B originally wrote Proxmox NIC v2 identities from the displayed
+    # interface name. Read that exact same source-scoped v2 identity once so
+    # the next managed update can migrate it to the provider's netX key.
+    legacy_v2 = SourceIdentity(
+        schema=desired.schema,
+        type=desired.type,
+        instance=desired.instance,
+        kind=desired.kind,
+        external_id=f'{vm.vmid}:{nic.name}',
+    )
+    return source_identity_match_rank(custom_fields, legacy_v2)
 
 
 def find_nic_sync_identity_matches(candidates, vm, nic):
