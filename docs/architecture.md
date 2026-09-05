@@ -238,3 +238,59 @@ yet. Python metadata still advertises >=3.8 despite syntax requiring >=3.10;
 Docker uses 3.12 and existing CI 3.13. Dependency manifests also differ (pyVmomi is
 in pyproject but not requirements.txt). GitHub CI/publication and supported-version
 alignment are separate follow-up changes, not silently bundled into WEB-0.
+
+## ESXi production and multi-source contract
+
+The standalone adapter has been exercised against VMware ESXi 6.7 build 20497097;
+that is the production compatibility baseline, not a claim of support for vCenter or
+every ESXi release. One API session is opened per source execution and reused while
+the host, VM, device, guest-network, disk, and datastore inventory is mapped. Runtime
+connect and pooled HTTP operations have a 15-second I/O timeout. The Web discovery
+and apply workers additionally enforce whole-child deadlines. Scheduled sources are
+still processed sequentially, so unavailable sources can lengthen a tick; parallel
+apply is deliberately deferred in favor of the shared lock and failure isolation.
+
+ESXi v2 identity is independent of display names and inventory placement:
+
+- host: `esxi / source_instance / host / <validated hardware UUID or host MOID>`;
+- VM: `esxi / source_instance / vm / <instanceUuid, BIOS UUID, or VM MOID>`;
+- VM NIC: `esxi / source_instance / vm-nic / <VM external ID>:<device key>`.
+
+UUID input is stripped and canonicalized to lower-case hyphenated form. Empty,
+malformed, and all-zero VM UUIDs fall through deterministically. Host UUIDs also
+reject placeholder-like mostly-zero values before using the managed-object ID.
+Renaming a host, VM, or NIC label, changing power state or portgroup, and moving a VM
+between hosts inside one future same-source inventory therefore do not change its
+identity. Two sources may safely report the same name, MOID, or UUID because
+`source_instance` is part of the namespace. Changing `source_instance` is creation of
+a new ownership namespace, never an ordinary edit or implicit migration.
+
+Malformed VM UUIDs fall back to another stable identifier. A VM or NIC without any
+stable identifier/device key is omitted with a bounded, secret-free warning while the
+remaining inventory continues; retain-only disappearance policy prevents deletion of
+any previous NetBox object. Provider/session/root-inventory failures still fail the
+source. Unknown VMware power states map conservatively to stopped/offline, never
+active; suspended maps to paused.
+
+NetBox targets come only from that source's immutable `site_slug`, `cluster_name`,
+`cluster_type_slug`, `platform_slug`, `device_role_slug`, and `device_type_slug`.
+Identity matches outside the target, duplicate identities, ambiguous targets, and
+foreign IP/MAC ownership fail closed. Name-only legacy matches—including CONFLUENCE,
+OWNCLOUD, MOODLE, KAYAKO, KAYAKOTEST, TESTRAIL, and YOUTRACK-7—remain
+`REVIEW_REQUIRED` until a separate explicit adoption operation. ESXi sources always
+use `legacy_identity_owner=false`.
+
+Host hardware, physical NICs, disks, datastores, and VM disks are discovered. Normal
+ESXi runtime currently manages identity-matched VM fields and VM networking; host
+matching is report-only, host networking is unsupported, and datastore detail is not
+expanded into a NetBox storage model. NEW VMs are visible as canonical `CREATE`
+planning intent but normal runtime does not create them implicitly: the established
+confirmed bootstrap helper remains a separate operator action. Missing VLANs and
+prefixes are reported and never auto-created. Missing NICs/VMs are retained, never
+deleted. These boundaries are intentional and must not be inferred from discovery
+completeness.
+
+Each registry row carries its own username and opaque token/password references.
+Onboarded sources receive distinct logical file-secret keys, resolved only at the
+provider boundary; there is no global credential fallback for registry sources. The
+legacy environment loader remains an explicit single-Proxmox compatibility path.

@@ -8,6 +8,8 @@
 - Add read-only run history list/detail API endpoints and an operator Runs view.
 - Add safe read-only diagnostics for registry, history, workers, scheduled activity, and sources.
 - Add derived per-source scheduling and an isolated schedule-control worker.
+- Canonicalize ESXi UUID identities, isolate malformed VM/NIC inventory safely, and
+  document the tested standalone ESXi and multi-source production contract.
 
 ## [0.2.4] - 02/09/2025
 

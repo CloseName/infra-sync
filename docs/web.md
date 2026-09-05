@@ -761,3 +761,35 @@ unit while it remains active; the shared flock also prevents overlap with manual
 
 Deferred: cron/timezones, clock-time schedules, maintenance windows, retry policies,
 stale cleanup, live systemd control, notifications, RBAC, and source/credential editing.
+
+### ESXi production-like multi-source validation (operator runbook)
+
+Run this only against reviewed sources and disposable objects where a provider-side
+change is requested. It is a checklist, not an automated production test:
+
+1. Run ESXi discovery and verify the expected host/VM/NIC counts and the tested ESXi
+   6.7 build 20497097 baseline.
+2. Build an ESXi plan; verify managed objects are `NO_CHANGE` and the seven known
+   name-only legacy objects remain `REVIEW_REQUIRED`.
+3. Run one confirmed manual ESXi sync, then rebuild the plan and verify idempotency.
+4. Observe one scheduled ESXi sync and one Proxmox sync at different configured
+   intervals; verify separate source_instance, source_type, run_id, and diagnostics.
+5. Disable and re-enable one source; confirm manual operations remain available and
+   automatic execution resumes on its next due tick without backlog.
+6. Use naturally occurring duplicate VM names or disposable VMs on test hypervisors;
+   verify display names remain unchanged and v2 identities differ by source namespace.
+7. Rename a disposable VM, apply its `UPDATE`, and verify the NetBox object ID and v2
+   identity remain unchanged; a second plan must be `NO_CHANGE`.
+8. Hide or remove only a disposable managed VM from a test source; verify
+   `RETAIN_ONLY` and no NetBox delete, then restore it and verify the same identity.
+9. Onboard a second ESXi or Proxmox source with its own address, username, secret
+   reference, target Site/Cluster, interval, and TLS setting. Confirm neither source
+   can match or update the other's objects.
+10. Hold `/run/infra-sync/apply.lock` and verify manual/scheduled contention fails
+    safely, then verify Runs and Diagnostics stay source-scoped.
+11. Restart/reboot the reviewed stack and repeat discovery, plan, history, diagnostics,
+    schedule, credential-resolution, and shared-lock smoke checks.
+
+Prefer `verify_ssl=true` after a trusted ESXi certificate chain is installed. Do not
+silently change an existing source's TLS setting. Do not rename production VMs or
+remove their visibility merely to exercise this checklist.
