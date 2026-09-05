@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from .secret_resolver import FileSecretResolver
 
 
+ESXI_IO_TIMEOUT = 15
+
+
 class EsxiConnectionError(RuntimeError):
     """An ESXi authentication, TLS, or API connection failed safely."""
 
@@ -34,6 +37,8 @@ def _pyvmomi_connect(host, username, password, verify_ssl):
         user=username,
         pwd=password,
         sslContext=context,
+        httpConnectionTimeout=ESXI_IO_TIMEOUT,
+        connectionPoolTimeout=ESXI_IO_TIMEOUT,
     )
 
 

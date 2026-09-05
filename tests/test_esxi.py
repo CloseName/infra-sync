@@ -1,9 +1,11 @@
 """Standalone ESXi adapter, discovery, identity, and executor tests."""
 
+from copy import deepcopy
 from dataclasses import replace
 
 import pytest
 
+import netbox_pve_sync.esxi_client as esxi_client
 from netbox_pve_sync.esxi_client import (
     EsxiClient,
     EsxiConnectionError,
@@ -34,6 +36,18 @@ class FakeResolver:
     def resolve(self, reference):
         self.references.append(reference)
         return self.value
+
+
+class MappingResolver:
+    """Resolve distinct opaque references without exposing them in results."""
+
+    def __init__(self, values):
+        self.values = values
+        self.references = []
+
+    def resolve(self, reference):
+        self.references.append(reference)
+        return self.values[reference.key]
 
 
 def esxi_config(source_id='esxi-a', password_key='ESXI_A_PASSWORD'):
@@ -138,6 +152,29 @@ def test_valid_esxi_host_hardware_uuid_is_used():
     assert discovered.source_id == '420f37d2-7a3b-4c1d-8e9f-001122334455'
 
 
+def test_host_rename_preserves_hardware_identity():
+    before = fake_esxi_service()
+    after = fake_esxi_service()
+    after.host.name = 'renamed-esxi.example.test'
+
+    first = discover_hosts(before, esxi_config())[0]
+    second = discover_hosts(after, esxi_config())[0]
+
+    assert first.original_name != second.original_name
+    assert host_source_identity(first) == host_source_identity(second)
+
+
+def test_host_uuid_is_canonicalized_across_case_braces_and_whitespace():
+    service = fake_esxi_service()
+    service.host.hardware.systemInfo.uuid = (
+        ' {420F37D2-7A3B-4C1D-8E9F-001122334455} '
+    )
+
+    discovered = discover_hosts(service, esxi_config())[0]
+
+    assert discovered.source_id == '420f37d2-7a3b-4c1d-8e9f-001122334455'
+
+
 @pytest.mark.parametrize(
     'hardware_uuid',
     (
@@ -191,7 +228,12 @@ def test_host_uuid_validation_does_not_change_vm_identity():
 
 @pytest.mark.parametrize(
     ('power_state', 'expected'),
-    (('poweredOn', 'running'), ('poweredOff', 'stopped'), ('suspended', 'stopped')),
+    (
+        ('poweredOn', 'running'),
+        ('poweredOff', 'stopped'),
+        ('suspended', 'paused'),
+        ('futureState', 'stopped'),
+    ),
 )
 def test_esxi_power_state_mapping(power_state, expected):
     host = discover_hosts(
@@ -200,6 +242,81 @@ def test_esxi_power_state_mapping(power_state, expected):
     )[0]
 
     assert host.virtual_machines[0].status == expected
+
+
+def test_vm_uuid_priority_and_normalization():
+    service = fake_esxi_service()
+    vm = service.host.vm[0]
+    vm.config.instanceUuid = ' {503C5AD7-0000-1111-2222-0123456789AB} '
+    vm.config.uuid = '42000000-1111-2222-3333-0123456789ab'
+
+    discovered = discover_hosts(service, esxi_config())[0].virtual_machines[0]
+
+    assert discovered.external_id == '503c5ad7-0000-1111-2222-0123456789ab'
+
+
+@pytest.mark.parametrize(
+    ('instance_uuid', 'bios_uuid', 'managed_id', 'expected'),
+    (
+        ('not-a-uuid', '42000000-1111-2222-3333-0123456789ab', 'vm-42',
+         '42000000-1111-2222-3333-0123456789ab'),
+        ('not-a-uuid', '42 00 00 00 11 11 22 22-33 33 01 23 45 67 89 ab',
+         'vm-42', '42000000-1111-2222-3333-0123456789ab'),
+        ('00000000-0000-0000-0000-000000000000', 'bad-bios', 'vm-42', 'vm-42'),
+        (None, None, 'vm-42', 'vm-42'),
+    ),
+)
+def test_invalid_vm_uuid_falls_back_deterministically(
+        instance_uuid, bios_uuid, managed_id, expected,
+):
+    service = fake_esxi_service()
+    vm = service.host.vm[0]
+    vm.config.instanceUuid = instance_uuid
+    vm.config.uuid = bios_uuid
+    vm._moId = managed_id
+
+    discovered = discover_hosts(service, esxi_config())[0].virtual_machines[0]
+
+    assert discovered.external_id == expected
+
+
+def test_malformed_vm_is_isolated_without_hiding_valid_inventory(monkeypatch):
+    service = fake_esxi_service()
+    warnings = []
+    monkeypatch.setattr(
+        'netbox_pve_sync.esxi_discovery.LOGGER.warning',
+        lambda message, **_values: warnings.append(message),
+    )
+    malformed = deepcopy(service.host.vm[0])
+    malformed.config.instanceUuid = 'invalid'
+    malformed.config.uuid = 'invalid'
+    malformed._moId = None
+    service.host.vm.insert(0, malformed)
+
+    discovered = discover_hosts(service, esxi_config())[0]
+
+    assert [vm.external_id for vm in discovered.virtual_machines] == [
+        '503c5ad7-0000-1111-2222-0123456789ab'
+    ]
+    assert warnings == ['Ignoring malformed ESXi VM during discovery']
+
+
+def test_malformed_nic_isolates_only_its_vm(monkeypatch):
+    service = fake_esxi_service()
+    warnings = []
+    monkeypatch.setattr(
+        'netbox_pve_sync.esxi_discovery.LOGGER.warning',
+        lambda message, **_values: warnings.append(message),
+    )
+    malformed = deepcopy(service.host.vm[0])
+    malformed.config.instanceUuid = '503c5ad7-aaaa-bbbb-cccc-0123456789ab'
+    malformed.config.hardware.device[-1].key = None
+    service.host.vm.append(malformed)
+
+    discovered = discover_hosts(service, esxi_config())[0]
+
+    assert len(discovered.virtual_machines) == 1
+    assert warnings == ['Ignoring malformed ESXi VM during discovery']
 
 
 def test_missing_vmware_tools_and_optional_hardware_are_safe():
@@ -238,6 +355,57 @@ def test_vm_rename_preserves_uuid_and_nic_identity():
     ).kind == 'vm-nic'
 
 
+def test_power_and_network_changes_do_not_change_vm_or_nic_identity():
+    before_service = fake_esxi_service(power_state='poweredOn')
+    after_service = fake_esxi_service(power_state='poweredOff')
+    after_nic = after_service.host.vm[0].config.hardware.device[-1]
+    after_nic.deviceInfo.label = 'Renamed adapter'
+    after_nic.backing.deviceName = 'Different Portgroup'
+    after_nic.macAddress = '00:50:56:AA:BB:DD'
+
+    before = discover_hosts(before_service, esxi_config())[0].virtual_machines[0]
+    after = discover_hosts(after_service, esxi_config())[0].virtual_machines[0]
+
+    assert virtual_machine_source_identity(before) == virtual_machine_source_identity(after)
+    assert virtual_machine_nic_source_identity(
+        before, before.interfaces[0],
+    ) == virtual_machine_nic_source_identity(after, after.interfaces[0])
+
+
+def test_three_nics_with_duplicate_labels_have_distinct_device_key_identities():
+    service = fake_esxi_service()
+    vm = service.host.vm[0]
+    original = vm.config.hardware.device[-1]
+    for key, mac in ((4001, '00:50:56:AA:BB:CD'), (4002, '00:50:56:AA:BB:CE')):
+        nic = deepcopy(original)
+        nic.key = key
+        nic.macAddress = mac
+        vm.config.hardware.device.append(nic)
+
+    discovered = discover_hosts(service, esxi_config())[0].virtual_machines[0]
+    identities = {
+        virtual_machine_nic_source_identity(discovered, nic)
+        for nic in discovered.interfaces
+    }
+
+    assert len(discovered.interfaces) == 3
+    assert len(identities) == 3
+
+
+def test_duplicate_vm_names_across_sources_keep_distinct_unmodified_identities():
+    first_service = fake_esxi_service(vm_name='APP01')
+    second_service = fake_esxi_service(vm_name='APP01')
+    second_service.host.vm[0].config.instanceUuid = (
+        '503c5ad7-aaaa-bbbb-cccc-0123456789ab'
+    )
+
+    first = discover_hosts(first_service, esxi_config('esxi-a'))[0].virtual_machines[0]
+    second = discover_hosts(second_service, esxi_config('esxi-b'))[0].virtual_machines[0]
+
+    assert first.original_name == second.original_name == 'APP01'
+    assert virtual_machine_source_identity(first) != virtual_machine_source_identity(second)
+
+
 def test_same_vm_uuid_is_isolated_by_source_instance():
     first = discover_hosts(fake_esxi_service(), esxi_config('esxi-a'))[0]
     second = discover_hosts(fake_esxi_service(), esxi_config('esxi-b'))[0]
@@ -253,6 +421,34 @@ def test_same_vm_uuid_is_isolated_by_source_instance():
     ) != virtual_machine_nic_source_identity(
         second_vm, second_vm.interfaces[0],
     )
+
+
+def test_two_esxi_sources_resolve_only_their_own_password_references():
+    resolver = MappingResolver({
+        'ESXI_A_PASSWORD': 'secret-a',
+        'ESXI_B_PASSWORD': 'secret-b',
+    })
+    connected = []
+    client = EsxiClient(
+        resolver=resolver,
+        connector=lambda host, _user, password, _verify: connected.append(
+            (host, password)
+        ) or fake_esxi_service(),
+        disconnecter=lambda _service: None,
+    )
+
+    for config in (esxi_config('esxi-a'), esxi_config('esxi-b', 'ESXI_B_PASSWORD')):
+        with client.session(config):
+            pass
+
+    assert resolver.references == [
+        SecretReference(provider='env', key='ESXI_A_PASSWORD'),
+        SecretReference(provider='env', key='ESXI_B_PASSWORD'),
+    ]
+    assert connected == [
+        ('esxi-a.example.test', 'secret-a'),
+        ('esxi-b.example.test', 'secret-b'),
+    ]
 
 
 @pytest.mark.parametrize('verify_ssl', (True, False))
@@ -276,6 +472,21 @@ def test_esxi_client_honors_tls_flag_and_disconnects(verify_ssl):
         config.address, 'root', 'fake-password', verify_ssl,
     )]
     assert disconnected == [service]
+
+
+def test_default_esxi_connector_bounds_http_timeouts(monkeypatch):
+    received = {}
+
+    def connect(**values):
+        received.update(values)
+        return object()
+
+    monkeypatch.setattr('pyVim.connect.SmartConnect', connect)
+
+    esxi_client._pyvmomi_connect('esxi.test', 'reader', 'secret', True)
+
+    assert received['httpConnectionTimeout'] == esxi_client.ESXI_IO_TIMEOUT == 15
+    assert received['connectionPoolTimeout'] == 15
 
 
 def test_esxi_connection_test_reports_success_and_disconnects():

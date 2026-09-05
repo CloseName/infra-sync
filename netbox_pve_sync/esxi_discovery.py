@@ -1,5 +1,7 @@
 """Map standalone ESXi API inventory into generic discovery models."""
 
+import logging
+import re
 from uuid import UUID
 
 from .discovery import (
@@ -27,27 +29,59 @@ def _items(value):
     return tuple(value or ())
 
 
-def _stable_id(obj, *paths):
-    for path in paths:
-        value = _value(obj, path)
-        if value:
-            return str(value)
+LOGGER = logging.getLogger(__name__)
+
+
+def _normalized_uuid(value):
+    """Return one canonical non-zero UUID or ``None`` for unusable input."""
+
+    if value is None:
+        return None
+    candidate = str(value).strip()
+    if not candidate:
+        return None
+    if candidate.startswith('{') and candidate.endswith('}'):
+        candidate = candidate[1:-1]
+    compact = candidate.replace('-', '').replace(' ', '')
+    if not re.fullmatch(r'[0-9A-Fa-f]{32}', compact):
+        return None
+    try:
+        parsed = UUID(hex=compact)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if parsed.int == 0:
+        return None
+    return str(parsed)
+
+
+def _managed_object_id(obj):
     value = getattr(obj, '_moId', None)
-    if value:
-        return str(value)
-    raise ValueError('ESXi object has no stable external identifier')
+    if value is None:
+        return None
+    candidate = str(value).strip()
+    if not candidate or candidate.casefold() == 'none':
+        return None
+    return candidate
+
+
+def _vm_external_id(vm):
+    """Use instance UUID, then BIOS UUID, then the managed-object ID."""
+
+    for path in ('config.instanceUuid', 'summary.config.instanceUuid', 'config.uuid'):
+        candidate = _normalized_uuid(_value(vm, path))
+        if candidate is not None:
+            return candidate
+    managed_id = _managed_object_id(vm)
+    if managed_id is not None:
+        return managed_id
+    raise ValueError('ESXi VM has no usable stable external identifier')
 
 
 def _validated_host_hardware_uuid(value):
-    if not value:
+    candidate = _normalized_uuid(value)
+    if candidate is None:
         return None
-    candidate = str(value).strip()
-    try:
-        parsed = UUID(candidate)
-    except (AttributeError, ValueError):
-        return None
-    if str(parsed) != candidate.casefold():
-        return None
+    parsed = UUID(candidate)
     if sum(byte != 0 for byte in parsed.bytes) < len(parsed.bytes) // 2:
         return None
     return candidate
@@ -58,9 +92,9 @@ def _host_external_id(host):
         candidate = _validated_host_hardware_uuid(_value(host, path))
         if candidate is not None:
             return candidate
-    managed_id = getattr(host, '_moId', None)
-    if managed_id:
-        return str(managed_id)
+    managed_id = _managed_object_id(host)
+    if managed_id is not None:
+        return managed_id
     raise ValueError('ESXi host has no usable stable external identifier')
 
 
@@ -219,6 +253,7 @@ def _vm_disks_and_interfaces(vm, host):
     interfaces = []
     addresses_by_key, addresses_by_mac = _guest_addresses(vm)
     portgroups = _portgroups(host)
+    nic_keys = set()
     for device in _items(_value(vm, 'config.hardware.device', ())):
         label = str(_value(device, 'deviceInfo.label', ''))
         key = getattr(device, 'key', None)
@@ -237,7 +272,14 @@ def _vm_disks_and_interfaces(vm, host):
             continue
         network = _value(device, 'backing.deviceName')
         network_name = str(network) if network else None
-        external_id = str(key) if key is not None else label
+        if key is None:
+            raise ValueError('ESXi VM NIC has no stable device key')
+        external_id = str(key).strip()
+        if not external_id or external_id.casefold() == 'none':
+            raise ValueError('ESXi VM NIC has no stable device key')
+        if external_id in nic_keys:
+            raise ValueError('ESXi VM has duplicate NIC device keys')
+        nic_keys.add(external_id)
         interfaces.append(
             DiscoveredInterface(
                 name=label or f'nic-{external_id}',
@@ -262,36 +304,54 @@ def _vm_autostart(vm, host):
     return False
 
 
+def _power_status(value):
+    """Map VMware power states into the closed shared status vocabulary."""
+
+    return {
+        'poweredOn': 'running',
+        'poweredOff': 'stopped',
+        'suspended': 'paused',
+    }.get(str(value), 'stopped')
+
+
+def _virtual_machine(vm, host, source_config, host_id):
+    external_id = _vm_external_id(vm)
+    name = str(getattr(vm, 'name', None) or _value(vm, 'config.name', external_id))
+    disks, interfaces = _vm_disks_and_interfaces(vm, host)
+    power_state = _value(vm, 'runtime.powerState', '')
+    return DiscoveredVirtualMachine(
+        source='esxi',
+        source_instance=source_config.source_instance,
+        legacy_identity_owner=False,
+        source_id=f'esxi:{external_id}',
+        node_source_id=host_id,
+        vmid=external_id,
+        external_id=external_id,
+        original_name=name,
+        normalized_name=name.upper(),
+        status=_power_status(power_state),
+        vcpus=int(_value(vm, 'config.hardware.numCPU', 0) or 0),
+        memory_bytes=int(
+            _value(vm, 'config.hardware.memoryMB', 0) or 0
+        ) * 1024 * 1024,
+        autostart=_vm_autostart(vm, host),
+        disks=disks,
+        interfaces=interfaces,
+    )
+
+
 def _virtual_machines(host, source_config, host_id):
     result = []
     for vm in _items(getattr(host, 'vm', ())):
-        external_id = _stable_id(
-            vm, 'config.instanceUuid', 'config.uuid', 'summary.config.instanceUuid'
-        )
-        name = str(getattr(vm, 'name', None) or _value(vm, 'config.name', external_id))
-        disks, interfaces = _vm_disks_and_interfaces(vm, host)
-        power_state = str(_value(vm, 'runtime.powerState', ''))
-        result.append(
-            DiscoveredVirtualMachine(
-                source='esxi',
-                source_instance=source_config.source_instance,
-                legacy_identity_owner=False,
-                source_id=f'esxi:{external_id}',
-                node_source_id=host_id,
-                vmid=external_id,
-                external_id=external_id,
-                original_name=name,
-                normalized_name=name.upper(),
-                status='running' if power_state == 'poweredOn' else 'stopped',
-                vcpus=int(_value(vm, 'config.hardware.numCPU', 0) or 0),
-                memory_bytes=int(
-                    _value(vm, 'config.hardware.memoryMB', 0) or 0
-                ) * 1024 * 1024,
-                autostart=_vm_autostart(vm, host),
-                disks=disks,
-                interfaces=interfaces,
+        try:
+            result.append(_virtual_machine(vm, host, source_config, host_id))
+        except (AttributeError, TypeError, ValueError):
+            # A malformed object is retained in NetBox by the global no-delete
+            # policy. Do not let one bad SDK object hide the rest of the host.
+            LOGGER.warning(
+                'Ignoring malformed ESXi VM during discovery',
+                extra={'source_instance': source_config.source_instance},
             )
-        )
     return result
 
 
