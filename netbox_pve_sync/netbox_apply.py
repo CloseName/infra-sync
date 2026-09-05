@@ -154,33 +154,34 @@ def _resolve_device(
                 f'matches={len(ip_matches)}'
             )
 
-        if len(ip_matches) == 1:
-            device = ip_matches[0]
-            reason = 'management_ip'
+        if ip_matches:
+            raise HostApplyError(
+                f'Device adoption candidate exists without sync identity: '
+                f'management_ip={host.management_ip!r}'
+            )
 
-        else:
-            # A name is useful conflict evidence, never ownership evidence.
-            name_matches = [
-                candidate
-                for candidate in devices
-                if candidate.name.casefold()
-                == host.normalized_name.casefold()
-            ]
+        # A name is useful conflict evidence, never ownership evidence.
+        name_matches = [
+            candidate
+            for candidate in devices
+            if candidate.name.casefold()
+            == host.normalized_name.casefold()
+        ]
 
-            if len(name_matches) > 1:
-                raise HostApplyError(
-                    f'Device name conflict: '
-                    f'{host.normalized_name!r} '
-                    f'matches={len(name_matches)}'
-                )
+        if len(name_matches) > 1:
+            raise HostApplyError(
+                f'Device name conflict: '
+                f'{host.normalized_name!r} '
+                f'matches={len(name_matches)}'
+            )
 
-            if name_matches:
-                raise HostApplyError(
-                    f'Device adoption candidate exists without sync identity: '
-                    f'{host.normalized_name!r}'
-                )
+        if name_matches:
+            raise HostApplyError(
+                f'Device adoption candidate exists without sync identity: '
+                f'{host.normalized_name!r}'
+            )
 
-            return None, None
+        return None, None
 
     data = device.serialize()
 

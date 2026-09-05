@@ -1,6 +1,7 @@
 """Safe, provider-neutral Web projection of read-only discovery results."""
 # pylint: disable=too-many-instance-attributes
 
+import ipaddress
 from dataclasses import dataclass
 from enum import Enum
 
@@ -62,6 +63,16 @@ def _object_id(value):
     return getattr(value, 'id', None)
 
 
+def _ip_value(value):
+    if value is None:
+        return None
+    raw = value.get('address') if isinstance(value, dict) else getattr(value, 'address', value)
+    try:
+        return str(ipaddress.ip_interface(str(raw)).ip)
+    except ValueError:
+        return None
+
+
 def _generic_item(discovered, kind, identity, all_records, target_records):
     managed = [record for record in all_records if identity.to_record() in _identities(record)]
     target_ids = {record.id for record in target_records}
@@ -87,6 +98,28 @@ def _generic_item(discovered, kind, identity, all_records, target_records):
                       'No existing object has this stable source identity.', 'create')
 
 
+def _proxmox_host_item(host, devices, target_devices):
+    item = _generic_item(host, 'host', host_source_identity(host), devices, target_devices)
+    if item.classification is not ReviewClassification.WOULD_CREATE or not host.management_ip:
+        return item
+    matches = [record for record in devices
+               if _ip_value(getattr(record, 'primary_ip4', None)) == host.management_ip]
+    target_ids = {record.id for record in target_devices}
+    if not matches:
+        return item
+    if len(matches) != 1 or matches[0].id not in target_ids:
+        return ReviewItem(
+            'host', host.original_name, host_source_identity(host).external_id,
+            ReviewClassification.CONFLICT, 'MANAGEMENT_IP_CONFLICT',
+            'Management IP evidence is ambiguous or outside the configured target.', 'review')
+    record = matches[0]
+    return ReviewItem(
+        'host', host.original_name, host_source_identity(host).external_id,
+        ReviewClassification.REVIEW_REQUIRED, 'MANAGEMENT_IP_CANDIDATE',
+        'Management IP matches, but network evidence alone does not establish ownership.',
+        'review', record.id, getattr(record, 'name', None))
+
+
 def build_proxmox_review(nb_api, hosts, config):
     """Classify Proxmox inventory without invoking any apply path."""
     site = nb_api.dcim.sites.get(slug=config.target.site_slug)
@@ -110,7 +143,7 @@ def build_proxmox_review(nb_api, hosts, config):
                        _object_id(_record(record).get('cluster')) == cluster.id)
     items = []
     for host in hosts:
-        items.append(_generic_item(host, 'host', host_source_identity(host), devices, target_devices))
+        items.append(_proxmox_host_item(host, devices, target_devices))
         items.extend(_generic_item(vm, 'qemu', virtual_machine_source_identity(vm), vms, target_vms)
                      for vm in host.virtual_machines)
         items.extend(_generic_item(lxc, 'lxc', lxc_source_identity(lxc), vms, target_vms)

@@ -35,11 +35,10 @@ def _ip_without_prefix(value):
 
 def _find_device_match(nb_objects: dict, host):
     """
-    Device matching priority:
+    Device resolution policy:
 
-      1. stable sync identity
-      2. management IP
-      3. normalized device name
+      1. stable sync identity owns the object
+      2. management IP and name are conflict/review evidence only
     """
 
     identity_matches = find_sync_identity_matches(
@@ -60,20 +59,17 @@ def _find_device_match(nb_objects: dict, host):
         )
 
     if host.management_ip:
-        for device in nb_objects['devices'].values():
-            device_ip = _ip_without_prefix(
-                getattr(
-                    device,
-                    'primary_ip4',
-                    None,
-                )
+        ip_matches = [
+            device
+            for device in nb_objects['devices'].values()
+            if _ip_without_prefix(getattr(device, 'primary_ip4', None))
+            == host.management_ip
+        ]
+        if ip_matches:
+            raise RuntimeError(
+                f'Device adoption candidate exists without sync identity: '
+                f'management_ip={host.management_ip!r}'
             )
-
-            if device_ip == host.management_ip:
-                return (
-                    device,
-                    'management_ip',
-                )
 
     device = nb_objects['devices'].get(
         host.normalized_name.lower()

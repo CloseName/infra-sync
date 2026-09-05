@@ -55,6 +55,40 @@ def test_proxmox_identity_name_and_new_classification():
     assert review.items[0].future_action == 'none'
 
 
+def test_proxmox_management_ip_is_review_evidence_not_ownership():
+    config = sample_source_config()
+    host = SimpleNamespace(
+        source='proxmox', source_instance=config.source_instance,
+        source_id='node-a', original_name='node-a', management_ip='10.20.30.10',
+        virtual_machines=[], containers=[],
+    )
+    site = SimpleNamespace(id=10)
+    cluster_type = SimpleNamespace(id=11)
+    cluster = SimpleNamespace(id=12, serialize=lambda: {
+        'type': 11, 'scope_type': 'dcim.site', 'scope_id': 10,
+    })
+    candidate = SimpleNamespace(
+        id=20, name='OTHER-HOST', primary_ip4='10.20.30.10/24',
+        serialize=lambda: {
+            'name': 'OTHER-HOST', 'site': 10, 'cluster': 12,
+            'primary_ip4': '10.20.30.10/24', 'custom_fields': {},
+        },
+    )
+    nb_api = SimpleNamespace(
+        dcim=SimpleNamespace(devices=Endpoint([candidate]), sites=Endpoint([site])),
+        virtualization=SimpleNamespace(
+            virtual_machines=Endpoint(), cluster_types=Endpoint([cluster_type]),
+            clusters=Endpoint([cluster]),
+        ),
+    )
+
+    item = build_proxmox_review(nb_api, [host], config).items[0]
+
+    assert item.classification.value == 'REVIEW_REQUIRED'
+    assert item.reason_code == 'MANAGEMENT_IP_CANDIDATE'
+    assert item.matched_object_id == 20
+
+
 def test_esxi_review_required_is_preserved_and_never_becomes_adoption():
     config = replace(sample_source_config(), source_type='esxi', legacy_identity_owner=False)
     identity = SourceIdentity('v2', 'esxi', config.source_instance, 'vm', 'vm-1')
