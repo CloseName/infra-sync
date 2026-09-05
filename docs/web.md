@@ -1,5 +1,9 @@
 # WEB-3: protected source onboarding, health and source visibility
 
+> Deployment note: `compose.production.yml` and [Deployment](deployment.md) are the
+> canonical clean-install path. Historical `compose.yml`/`compose.web.yml` commands in
+> phase-specific sections remain compatibility and audit records.
+
 ## WEB-3 security boundary
 
 WEB-3 adds only Test Connection and explicit registration of a new source. It
@@ -541,13 +545,11 @@ for Site, Device Role, Platform, Device Type, Cluster Type, Cluster, Prefix and 
 MAC Address and IP Address. Do not grant `delete` on any model. Validate the precise NetBox
 permission codenames against the deployed NetBox version before enabling the worker.
 
-The production systemd unit serializes the operator-managed registry-all wrapper and the manual
-worker through the host file `/run/infra-sync/apply.lock`. Deploy the tracked unit to
-`/etc/systemd/system/infra-netbox-sync.service` and reload systemd before enabling WEB-5; changing
-only `scripts/run-full-sync.sh` does not affect an installed unit that starts
-`/opt/infra-sync/run-full-sync-registry.sh`. The wrapper remains host-managed and is not stored in
-this repository. Only `/run/infra-sync` is mounted into the worker; broad `/run`, Docker socket,
-and secret-broker socket mounts are forbidden.
+The canonical systemd unit calls the tracked
+`/opt/infra-sync/current/scripts/run-scheduled-sync.sh`. That wrapper owns the only scheduled
+flock and contends with the manual worker on `/run/infra-sync/apply.lock`. Only
+`/run/infra-sync` is mounted into the worker; broad `/run`, Docker socket, and secret-broker
+socket mounts are forbidden. Historical host-managed wrappers must be disabled during cutover.
 
 An enabled source remains manually eligible when `sync_enabled=false`; this flag continues to
 control automatic registry-all scheduling only. Manual synchronization never changes either flag.
@@ -705,11 +707,10 @@ or host write access for diagnostics.
 
 # WEB-8 per-source scheduling
 
-The existing systemd unit remains the host-owned serialization boundary. Install the
-tracked `deploy/systemd/infra-netbox-sync.timer.d/web8-fixed-tick.conf` drop-in only in
-the reviewed rollout to change it to a fixed 60-second tick. It invokes registry-all under
-`/run/infra-sync/apply.lock`; systemd does not calculate individual source schedules.
-Do not modify the live timer until the WEB-8 worker/API/runtime smoke tests pass.
+The tracked base timer now contains the final fixed 60-second tick; a clean install needs no
+drop-in. The tracked wrapper invokes registry-all under `/run/infra-sync/apply.lock`; systemd
+does not calculate individual source schedules. Existing installations must remove/reconcile
+historical timer drop-ins during a reviewed cutover, never during an ordinary application update.
 
 The runtime loads all registry sources and derives `DISABLED`, `WAITING`, `DUE`,
 `RUNNING`, or `DELAYED` from configuration and scheduled history. The reference is the

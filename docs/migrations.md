@@ -6,20 +6,23 @@ No migration has been run against production by this change.
 
 ## Tooling and execution
 
-From the repository root in a dedicated operator environment:
+The canonical deployment runs the migration from the packaged application image; host
+Python and a host virtual environment are not required:
 
 ```sh
-python -m pip install -r requirements-migrations.txt
-alembic -c alembic.ini history
-alembic -c alembic.ini upgrade head
+docker compose --env-file /opt/infra-sync/config/compose.env \
+  -f /opt/infra-sync/current/compose.production.yml --profile tools \
+  run --rm --no-deps infra-sync-migrate
 ```
 
-Supply `INFRA_SYNC_REGISTRY_DSN` and `INFRA_SYNC_REGISTRY_SCHEMA` through the
-operator's protected environment. The DSN supports the same libpq connection
-string/URI as the current runtime. Do not put it in alembic.ini, command arguments,
-logs or source control. No default schema/DB is inferred. Do not use `stamp` to
-bypass validation. Offline SQL generation is rejected because existing-table
-validation requires a live PostgreSQL connection.
+For development only, `python -m pip install -r requirements-migrations.txt` followed by
+`alembic -c alembic.ini upgrade head` remains supported. In that mode supply
+`INFRA_SYNC_REGISTRY_DSN` and `INFRA_SYNC_REGISTRY_SCHEMA` through the operator's
+protected environment. The canonical one-shot instead reads its owner password from
+the protected infrastructure-secret directory and builds the connection internally.
+Do not put either credential in alembic.ini, command arguments, logs or source control.
+Do not use `stamp` to bypass validation. Offline SQL generation is rejected because
+existing-table validation requires a live PostgreSQL connection.
 
 ## Baseline behavior
 
@@ -46,9 +49,9 @@ validation requires a live PostgreSQL connection.
   migrated, operators use Alembic for schema evolution rather than extending
   initialize(). Future revisions must remain independent of mutable runtime code.
 
-The migration role needs schema DDL permission; the future API/worker role should
-have only required DML permission. Permissions and production rollout are operator
-tasks, not performed by this repository change.
+The migration owner is provisioned separately from runtime roles. The tracked
+`infra-sync-db-grants` operation reapplies the exact least-privilege matrix after
+migration; see [Deployment](deployment.md#database-lifecycle-and-roles).
 
 ## Validation
 

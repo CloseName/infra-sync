@@ -14,6 +14,9 @@
   isolate malformed workload/NIC records, and document the PVE 9.1.9 validation contract.
 - Validate heterogeneous source identity, credentials, targets, scheduling, history,
   diagnostics, and dynamic onboarding; reject management-IP-only host ownership.
+- Add the canonical bundled-PostgreSQL deployment foundation, one application image,
+  tracked database bootstrap/migration tools, installer, systemd wrapper, and private
+  role-separated configuration without NetBox Docker-network or source-tree coupling.
 
 ## [0.2.4] - 02/09/2025
 

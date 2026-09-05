@@ -31,14 +31,13 @@ registry-all scheduler remains the automatic execution authority. See
   `/run/secrets/infra-sync`. LegacyFileSecretResolver supports old absolute
   paths. NetBox credentials still use the existing bootstrap environment/file
   reader. No new secret provider is activated.
-- `scripts/run-full-sync.sh` uses flock, the shared lock path and Compose full
-  apply with FULL_WRITE. The production systemd unit independently acquires the
-  same lock before invoking the operator-managed registry-all wrapper at
-  `/opt/infra-sync/run-full-sync-registry.sh` every 10 minutes.
-- Compose currently builds one CLI image, mounts secrets, and joins external
-  `netbox_default`. It does NOT declare PostgreSQL or registry-all environment.
-  The reported live registry-all setup therefore includes operator configuration
-  beyond these checked-in files; WEB-0 does not inspect or overwrite that setup.
+- `scripts/run-scheduled-sync.sh` is the tracked registry-all wrapper. It owns the
+  sole scheduled flock on `/run/infra-sync/apply.lock`; the manual apply worker
+  contends on the same host inode.
+- `compose.production.yml` is the clean-install topology: one application image,
+  bundled private PostgreSQL, an internal DB network, ordinary provider/NetBox HTTPS
+  egress, dynamic source secrets and no source-tree bind or `netbox_default`.
+  Historical Compose files remain compatibility-only.
 - Tests use fake NetBox/Proxmox/ESXi, plus opt-in live/isolated PostgreSQL tests.
   `.forgejo/workflows/ci.yaml` runs pytest and pylint >=9.0; these workflows are
   not GitHub Actions. CD still describes upstream-style PyPI publication.
@@ -50,22 +49,22 @@ netbox_pve_sync/                 existing runtime, domain, adapters: unchanged
   application/                  new, opt-in transport-neutral contracts
 docs/                           architecture, migration and development guides
 migrations/                     Alembic environment and immutable revisions
-deploy/systemd/                 existing production scheduler: unchanged
-scripts/                        existing production wrapper: unchanged
+deploy/systemd/                 tracked final service and 60-second timer
+scripts/                        canonical and compatibility wrappers
 tests/                          old suite plus foundation coverage
-compose.yml + compose.apply.yml existing production entry: unchanged
+compose.production.yml          canonical bundled deployment
+compose*.yml                    compatibility and optional overrides
 alembic.ini                     migration paths, never credentials
-requirements-migrations.txt     operator tooling, not runtime dependencies
+requirements-migrations.txt     migration dependencies included in canonical image
 ```
 
 WEB-1 adds `netbox_pve_sync/api/` (FastAPI) and `frontend/` (React/TypeScript,
 Vite). No top-level backend package is needed: API, application and worker code
 can share the existing distributable Python package. Do not move stable modules
-for cosmetic layering. Migration dependencies are dev/operator-only for now;
-the current Dockerfile and base distribution dependencies remain unchanged.
-Web dependencies are an optional extra. Dockerfile.web builds that extra plus
-frontend assets; Compose adds an opt-in API role in the same project. This avoids
-changing the deployed CLI image before an approved cutover.
+for cosmetic layering. Migration dependencies are installed in the canonical image
+for explicit one-shot operator commands, never API startup. Web dependencies remain
+an optional Python extra. Dockerfile.web builds the single canonical artifact plus
+frontend assets; process credentials, mounts, users and capabilities remain separate.
 
 ## Component contracts
 
@@ -207,20 +206,19 @@ use RUN_INTERNAL_FAILED with a generic message. Raw runtime logs are not API-rea
 
 ## Compose and deployment transition
 
-Target: one repository, one Compose project, one application image used by API,
-worker and a one-shot migration role; PostgreSQL with a persistent named volume;
+Implemented foundation: one repository, one stable Compose project, one application
+image used by API, workers, scheduler and one-shot database tools; PostgreSQL with a
+persistent named volume;
 frontend build assets served by API initially (separate web container only if
 justified). No Redis: PostgreSQL job claims/leases are sufficient until measured
 otherwise. DB remains private with no host port by default. External NetBox stays
 an integration, not part of our schema or ownership.
 
-Future `docker compose up -d` must gate API/worker startup on DB health and a
-successful explicit migration role, have least-privilege DB users, read-only
-application filesystems, protected secret mounts and health/readiness endpoints.
-This is a deployment contract, not a runnable Web stack in WEB-0. Existing
-`infra-netbox-sync`, container_name, systemd filenames, references and lock paths
-stay unchanged. Never run both systemd and a new worker scheduler against the
-same sources without a shared exclusion strategy. Cutover requires explicit
+The installer starts and health-checks PostgreSQL before role bootstrap, migration,
+grants and long-running services. Application filesystems remain read-only and secret
+mounts/credentials are role-scoped. Historical `infra-netbox-sync` service/file naming
+remains for compatibility; the configurable Compose project defaults to `infra-sync`.
+Never run a historical scheduler alongside the canonical timer. Cutover requires explicit
 operator approval, rollback plan and a tested database backup/restore procedure.
 
 ## Deferred and approval gates
@@ -233,11 +231,10 @@ remaining Web v1 workflows incrementally. Auth integration comes later.
 
 Before production cutover: test migration on a restored copy, reconcile actual
 server Compose/registry configuration, review unauthenticated exposure, and approve
-scheduler ownership. Portable full application startup is a target, not delivered
-yet. Python metadata still advertises >=3.8 despite syntax requiring >=3.10;
-Docker uses 3.12 and existing CI 3.13. Dependency manifests also differ (pyVmomi is
-in pyproject but not requirements.txt). GitHub CI/publication and supported-version
-alignment are separate follow-up changes, not silently bundled into WEB-0.
+scheduler ownership. Portable zero-source startup is provided by the foundation but
+still requires a disposable Debian rehearsal. Python metadata now matches the actual
+3.10+ syntax contract, and the fresh requirements include pyVmomi. See
+[Deployment](deployment.md) for the supported clean-install path.
 
 ## ESXi production and multi-source contract
 

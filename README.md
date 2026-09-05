@@ -24,18 +24,37 @@ The Proxmox identity and legacy-compatibility contract is documented alongside t
 The heterogeneous source isolation and readiness gate is documented in
 [Architecture](docs/architecture.md#multi-source-system-contract) and the
 [multi-source live checklist](docs/web.md#multi-source-live-validation-operator-runbook).
-The legacy setup notes below do not
-describe the complete current registry-all deployment.
+For a fresh host, use the [canonical v1 deployment foundation](docs/deployment.md).
+The historical files and environment workflow below are retained only for compatibility.
 
-## Installation
+## Canonical deployment foundation
 
-This package is available on PyPi. You can install it using pip.
+Bundled private PostgreSQL, the API/workers/broker, explicit migrations, generated
+role-separated configuration, and the tracked 60-second systemd scheduler are defined by
+`compose.production.yml` and `deploy/install.py`. A clean installation does not join a
+NetBox Docker network, does not bind-mount the source tree, and does not require static
+per-source secret mounts.
 
+```sh
+python3 deploy/install.py --check
+# After review on the target Debian host:
+sudo python3 deploy/install.py --release-id <release-id>
 ```
-$ pip install netbox-pve-sync
+
+See [Deployment](docs/deployment.md) before any rollout. The installer does not request
+provider credentials and must not be aimed at an existing production host without a
+backup and restored-copy rehearsal.
+
+## Legacy package/environment compatibility
+
+The package remains available as `netbox-pve-sync` and the legacy single-Proxmox mode is
+kept for compatibility. It is not the canonical multi-source production deployment.
+
+```sh
+pip install netbox-pve-sync
 ```
 
-## Configuration
+### Configuration
 
 ### On NetBox
 
@@ -78,10 +97,8 @@ The following env variables will need to be set:
 - **PVE_API_TOKEN**: The name of the API token created previously. (ex: test-token)
 - **PVE_API_SECRET**: The API token created previously (ex: 4d46dc0a-6363-47a2-98df-d5cdfefa33d2)
 
-## Executing the script
+### Executing the legacy script
 
-You can then execute the script using the following command:
-
-```
-PVE_API_HOST=xx PVE_API_USER=xx PVE_API_TOKEN=xx PVE_API_SECRET=xx NB_API_URL=xx NB_API_TOKEN=xx nbpxsync
-```
+Supply the documented legacy environment through a protected process manager or secret
+facility, then run `nbpxsync`. Do not embed credentials in shell history or repository
+files.
