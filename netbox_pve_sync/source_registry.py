@@ -49,6 +49,14 @@ class SourceRecord:
         return self.config
 
 
+@dataclass(frozen=True)
+class SourceLoadResult:
+    """One isolated registry-row conversion result for scheduler evaluation."""
+
+    record: SourceRecord | None
+    valid: bool
+
+
 class SourceRegistryError(RuntimeError):
     """Base error for fail-closed registry operations."""
 
@@ -330,6 +338,25 @@ class SourceRegistry:
                 )
                 rows = cursor.fetchall()
         return tuple(self._row_to_record(row) for row in rows)
+
+    def list_sources_isolated(self):
+        """Convert every row independently without weakening strict registry reads."""
+
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL('SELECT * FROM {} ORDER BY id').format(
+                        self._table('sources')
+                    )
+                )
+                rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            try:
+                results.append(SourceLoadResult(self._row_to_record(row), True))
+            except Exception:  # pylint: disable=broad-exception-caught
+                results.append(SourceLoadResult(None, False))
+        return tuple(results)
 
     def list_runnable_sources(self):
         """List enabled, sync-enabled configs deterministically by source id."""

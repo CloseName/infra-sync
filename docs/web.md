@@ -718,6 +718,11 @@ No history is due now. Missed ticks cause one execution only. Recent scheduled R
 is skipped, while stale RUNNING remains visible and unchanged but does not block forever.
 Disabling automatic sync never kills an existing run and does not disable manual sync.
 Re-enabling an overdue source makes it due on the next tick.
+Registry-row conversion and schedule evaluation are isolated per source. A malformed source or
+evaluation anomaly produces only `SCHEDULE_EVALUATION_FAILED`, creates no scheduled history row,
+and does not block other sources. `evaluation_failed` is reported separately in the scheduler
+summary; execution, history, or evaluation failures make the process exit nonzero. Raw exception
+details are never included in that summary.
 `SYNC_MODE=inventory` is evaluation-only: it reads and prints decisions but does not
 contact providers or create/finalize scheduled run records.
 

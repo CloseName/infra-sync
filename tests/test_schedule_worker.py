@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from netbox_pve_sync.api.app import create_app
-from netbox_pve_sync.api.schedule_client import ScheduleRequestError
+from netbox_pve_sync.api.schedule_client import ScheduleRequestError, ScheduleWorkerClient
 from netbox_pve_sync.api.settings import ApiSettings
 from netbox_pve_sync.application.schedules import ScheduleView
 from netbox_pve_sync.application.schedules import ScheduleReadError
@@ -127,3 +127,84 @@ def test_schedule_read_failure_is_safe_and_api_has_no_writer_dsn():
     api = compose.split('  infra-sync-secret-broker:', 1)[0]
     assert 'INFRA_SYNC_SCHEDULE_WRITER_DSN' not in api
     assert 'docker.sock' not in compose and 'systemctl' not in compose
+
+
+@pytest.mark.parametrize('headers_override', [
+    {'X-Infra-Sync-CSRF': ''},
+    {'Origin': 'http://attacker.invalid'},
+    {'Content-Type': 'text/plain'},
+])
+def test_schedule_patch_rejects_invalid_write_boundary(headers_override):
+    protected = headers()
+    protected.update(headers_override)
+    settings = ApiSettings(allowed_write_hosts=('testserver',))
+    with TestClient(create_app(settings, schedule_service=ScheduleService())) as client:
+        response = client.patch('/api/v1/sources/pve-test/schedule', headers=protected, json={
+            'sync_enabled': True, 'sync_interval_seconds': 600,
+            'expected_sync_enabled': False, 'expected_sync_interval_seconds': 600})
+    assert response.status_code == 403
+    assert response.json()['error']['code'] == 'API_WRITE_FORBIDDEN'
+
+
+def test_schedule_patch_rejects_missing_csrf_header():
+    protected = headers()
+    del protected['X-Infra-Sync-CSRF']
+    settings = ApiSettings(allowed_write_hosts=('testserver',))
+    with TestClient(create_app(settings, schedule_service=ScheduleService())) as client:
+        response = client.patch('/api/v1/sources/pve-test/schedule', headers=protected, json={
+            'sync_enabled': True, 'sync_interval_seconds': 600,
+            'expected_sync_enabled': False, 'expected_sync_interval_seconds': 600})
+    assert response.status_code == 403
+    assert response.json()['error']['code'] == 'API_WRITE_FORBIDDEN'
+
+
+def test_schedule_patch_rejects_oversized_missing_length_and_extra_fields():
+    settings = ApiSettings(allowed_write_hosts=('testserver',))
+    payload = json.dumps({'sync_enabled': True, 'sync_interval_seconds': 600,
+                          'expected_sync_enabled': False,
+                          'expected_sync_interval_seconds': 600})
+    with TestClient(create_app(settings, schedule_service=ScheduleService())) as client:
+        oversized = client.build_request('PATCH', '/api/v1/sources/pve-test/schedule',
+                                          headers=headers(), content=payload)
+        oversized.headers['content-length'] = '16385'
+        oversized_response = client.send(oversized)
+        missing = client.build_request('PATCH', '/api/v1/sources/pve-test/schedule',
+                                        headers=headers(), content=payload)
+        del missing.headers['content-length']
+        missing_response = client.send(missing)
+        extra_response = client.patch('/api/v1/sources/pve-test/schedule', headers=headers(),
+                                      json={**json.loads(payload), 'enabled': False})
+    assert oversized_response.status_code == 413
+    assert missing_response.status_code == 413
+    assert extra_response.status_code == 422
+
+
+def test_schedule_socket_timeout_maps_to_safe_api_error(monkeypatch):
+    monkeypatch.setattr('netbox_pve_sync.api.schedule_client.socket.AF_UNIX', 1, raising=False)
+    class TimedOutSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def settimeout(self, _value):
+            pass
+
+        def connect(self, _path):
+            raise TimeoutError('RAW SOCKET PATH AND SECRET')
+
+    worker = ScheduleWorkerClient('/private/socket', connector=lambda *_args: TimedOutSocket())
+
+    class TimedOutService(ScheduleService):
+        def update(self, instance, values):
+            return worker.update(instance, values)
+
+    settings = ApiSettings(allowed_write_hosts=('testserver',))
+    with TestClient(create_app(settings, schedule_service=TimedOutService())) as client:
+        response = client.patch('/api/v1/sources/pve-test/schedule', headers=headers(), json={
+            'sync_enabled': True, 'sync_interval_seconds': 600,
+            'expected_sync_enabled': False, 'expected_sync_interval_seconds': 600})
+    assert response.status_code == 503
+    assert response.json()['error']['code'] == 'CONTROL_WORKER_UNAVAILABLE'
+    assert 'RAW SOCKET' not in response.text and '/private/socket' not in response.text

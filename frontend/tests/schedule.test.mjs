@@ -41,5 +41,9 @@ test('schedule errors are allowlisted and source page keeps manual controls', as
     /Scheduling request failed/);
   const page = readFileSync(new URL('../src/pages/SourcesPage.tsx', import.meta.url), 'utf8');
   for (const text of ['Automatic synchronization', 'Edit schedule', 'Custom seconds',
-    'Manual synchronization remains available.', 'Build plan', 'Sync Now']) assert.ok(page.includes(text));
+    'Manual synchronization remains available.', 'Build plan', 'Sync Now',
+    'Credentials and source identity are protected. Scheduling can be edited below.',
+    'Automatic synchronization updated.']) assert.ok(page.includes(text));
+  for (const state of ['DISABLED', 'WAITING', 'DUE', 'RUNNING', 'DELAYED'])
+    assert.equal(isSchedule({ ...schedule, scheduler_state: state }), true);
 });

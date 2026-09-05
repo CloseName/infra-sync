@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from enum import Enum
 
+from ..source_config import SourceConfig
+
 
 MIN_SYNC_INTERVAL = 60
 MAX_SYNC_INTERVAL = 86400
@@ -28,18 +30,41 @@ class SchedulerState(str, Enum):
     DELAYED = 'DELAYED'
 
 
+class ScheduleEvaluationStatus(str, Enum):
+    """Closed scheduler evaluation outcomes."""
+
+    OK = 'OK'
+    FAILED = 'FAILED'
+
+
+@dataclass(frozen=True)
+class SchedulerSourceInput:
+    """A validated config or one safely isolated conversion failure."""
+
+    config: SourceConfig | None
+
+
 @dataclass(frozen=True)
 class ScheduleDecision:
     """One read-only decision derived from config and scheduled history."""
 
-    source_instance: str
-    state: SchedulerState
+    source_instance: str | None
+    state: SchedulerState | None
     last_scheduled_run_at: object | None
     next_expected_at: object | None
+    evaluation_status: ScheduleEvaluationStatus = ScheduleEvaluationStatus.OK
+    error_code: str | None = None
 
     @property
     def eligible(self):
-        return self.state in (SchedulerState.DUE, SchedulerState.DELAYED)
+        return (self.evaluation_status is ScheduleEvaluationStatus.OK
+                and self.state in (SchedulerState.DUE, SchedulerState.DELAYED))
+
+    @classmethod
+    def failed(cls, source_instance=None):
+        """Return a bounded failure without retaining raw exception details."""
+        return cls(source_instance, None, None, None, ScheduleEvaluationStatus.FAILED,
+                   'SCHEDULE_EVALUATION_FAILED')
 
 
 def validate_interval(value, *, current=False):

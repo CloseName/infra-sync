@@ -8,6 +8,7 @@ from pathlib import Path
 import psycopg
 
 from .source_config import SecretReference, SourceConfig, SourceCredentials
+from .application.scheduling import SchedulerSourceInput
 from .source_registry import SourceRegistry
 
 
@@ -156,9 +157,13 @@ def load_scheduler_source_configs(environ=None, registry_factory=None):
     registry = (registry_factory or _postgres_registry)(
         _required(environ, 'INFRA_SYNC_REGISTRY_DSN'),
         _required(environ, 'INFRA_SYNC_REGISTRY_SCHEMA'))
-    configs = tuple(record.to_source_config() for record in registry.list_sources())
-    owners = [config.id for config in configs
-              if config.enabled and config.sync_enabled and config.legacy_identity_owner]
+    load_results = registry.list_sources_isolated()
+    configs = tuple(SchedulerSourceInput(
+        result.record.to_source_config() if result.valid else None
+    ) for result in load_results)
+    owners = [item.config.id for item in configs
+              if item.config is not None and item.config.enabled
+              and item.config.sync_enabled and item.config.legacy_identity_owner]
     if len(owners) > 1:
         raise SourceBootstrapError('Registry has multiple runnable legacy identity owners')
     return configs

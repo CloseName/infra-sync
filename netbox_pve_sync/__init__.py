@@ -1134,7 +1134,8 @@ def main():
     print(f'SYNC_MODE={sync_mode}')
     source_mode = runtime_source_mode(os.environ)
     if source_mode == REGISTRY_ALL_MODE:
-        from .scheduler_runtime import run_scheduler_tick  # pylint: disable=import-outside-toplevel
+        from .scheduler_runtime import (run_scheduler_tick,  # pylint: disable=import-outside-toplevel
+                                        scheduler_summary_lines)
         from .source_bootstrap import load_scheduler_source_configs  # pylint: disable=import-outside-toplevel
         from .application.scheduling import stale_threshold  # pylint: disable=import-outside-toplevel
         configs = load_scheduler_source_configs()
@@ -1152,15 +1153,9 @@ def main():
         )
         result = tick.execution
         _print_multi_source_result(result)
-        counts = tick.counts
-        print('SCHEDULER SUMMARY')
-        print(f'sources={len(tick.decisions)}')
-        for name in ('due', 'delayed', 'waiting', 'running', 'disabled'):
-            print(f'{name}={counts[name]}')
-        print(f'executed={result.total}')
-        print(f'failed={result.failed}')
-        print(f'history_failures={result.history_failures}')
-        if result.failed or result.history_failures:
+        for line in scheduler_summary_lines(tick):
+            print(line)
+        if tick.failed:
             raise SystemExit(1)
         return
 

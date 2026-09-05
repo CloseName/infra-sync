@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from netbox_pve_sync.application.scheduling import SchedulerState, evaluate_schedule
-from netbox_pve_sync.scheduler_runtime import run_scheduler_tick
+from netbox_pve_sync.scheduler_runtime import run_scheduler_tick, scheduler_summary_lines
+from netbox_pve_sync.source_registry import SourceLoadResult
 from netbox_pve_sync.source_bootstrap import load_scheduler_source_configs
 from tests.sample_data import sample_source_config
 
@@ -124,9 +125,101 @@ def test_scheduler_loader_includes_disabled_waiting_and_runnable_sources():
                source('active'))
     records = tuple(SimpleNamespace(to_source_config=lambda value=value: value)
                     for value in configs)
-    registry = SimpleNamespace(list_sources=lambda: records)
+    registry = SimpleNamespace(list_sources_isolated=lambda: tuple(
+        SourceLoadResult(record, True) for record in records))
     loaded = load_scheduler_source_configs({
         'SOURCE_CONFIG_MODE': 'registry-all', 'INFRA_SYNC_REGISTRY_DSN': 'fixture',
         'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync'},
         registry_factory=lambda _dsn, _schema: registry)
-    assert loaded == configs
+    assert tuple(item.config for item in loaded) == configs
+
+
+def test_evaluation_failure_is_isolated_and_due_source_executes(monkeypatch):
+    real_evaluate = evaluate_schedule
+
+    def isolated(config, *args):
+        if config.source_instance == 'pve-a':
+            raise RuntimeError('RAW SECRET EVALUATION DETAIL')
+        return real_evaluate(config, *args)
+
+    monkeypatch.setattr('netbox_pve_sync.scheduler_runtime.evaluate_schedule', isolated)
+    repo, seen = Repository(), []
+    tick = run_scheduler_tick((source('pve-a'), source('pve-b')),
+                              lambda config: seen.append(config.source_instance), repo,
+                              clock=lambda: NOW)
+    summary = '\n'.join(scheduler_summary_lines(tick))
+    assert seen == ['pve-b'] and repo.started == ['pve-b']
+    assert tick.evaluation_failed == 1 and tick.failed is True
+    assert 'evaluation_failed=1' in summary and 'RAW SECRET' not in summary
+    assert tick.counts['due'] == 1
+
+
+def test_malformed_conversion_is_isolated_before_due_execution():
+    valid = SimpleNamespace(to_source_config=lambda: source('pve-b'))
+    registry = SimpleNamespace(list_sources_isolated=lambda: (
+        SourceLoadResult(None, False), SourceLoadResult(valid, True)))
+    loaded = load_scheduler_source_configs({
+        'SOURCE_CONFIG_MODE': 'registry-all', 'INFRA_SYNC_REGISTRY_DSN': 'fixture',
+        'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync'},
+        registry_factory=lambda _dsn, _schema: registry)
+    repo, seen = Repository(), []
+    tick = run_scheduler_tick(loaded, lambda config: seen.append(config.source_instance),
+                              repo, clock=lambda: NOW)
+    assert seen == ['pve-b'] and repo.started == ['pve-b']
+    assert tick.evaluation_failed == 1 and len(tick.decisions) == 2
+
+
+def test_evaluation_failure_with_waiting_source_still_has_summary(monkeypatch):
+    real_evaluate = evaluate_schedule
+
+    def isolated(config, *args):
+        if config.source_instance == 'pve-a':
+            raise RuntimeError('private detail')
+        return real_evaluate(config, *args)
+
+    monkeypatch.setattr('netbox_pve_sync.scheduler_runtime.evaluate_schedule', isolated)
+    repo = Repository((run('pve-b', 10),))
+    tick = run_scheduler_tick((source('pve-a'), source('pve-b')),
+                              lambda _config: pytest.fail('must not execute'), repo,
+                              clock=lambda: NOW)
+    assert tick.execution.total == 0 and tick.counts['waiting'] == 1
+    assert 'evaluation_failed=1' in scheduler_summary_lines(tick)
+
+
+def test_one_evaluation_failure_does_not_block_two_due_sources(monkeypatch):
+    real_evaluate = evaluate_schedule
+
+    def isolated(config, *args):
+        if config.source_instance == 'pve-a':
+            raise RuntimeError('private detail')
+        return real_evaluate(config, *args)
+
+    monkeypatch.setattr('netbox_pve_sync.scheduler_runtime.evaluate_schedule', isolated)
+    repo, seen = Repository(), []
+    tick = run_scheduler_tick((source('pve-a'), source('pve-b'), source('pve-c')),
+                              lambda config: seen.append(config.source_instance), repo,
+                              clock=lambda: NOW)
+    assert seen == ['pve-b', 'pve-c'] and tick.counts['due'] == 2
+    assert tick.evaluation_failed == 1
+
+
+def test_manual_history_does_not_shift_scheduled_cadence():
+    scheduled = run(age=600)
+    manual = run(age=300)
+    scheduled.trigger, manual.trigger = 'scheduled', 'manual'
+
+    class MixedHistory(Repository):
+        history = (scheduled, manual)
+
+        def latest_by_source(self, *, trigger=None, status=None):
+            assert trigger == 'scheduled'
+            if status == 'RUNNING':
+                return ()
+            matches = tuple(item for item in self.history if item.trigger == trigger)
+            return (max(matches, key=lambda item: item.started_at),)
+
+    tick = run_scheduler_tick((source(interval=600),), lambda _config: None,
+                              MixedHistory(), clock=lambda: NOW, execute_due=False)
+    assert manual.started_at > scheduled.started_at
+    assert tick.decisions[0].next_expected_at == scheduled.started_at + timedelta(seconds=600)
+    assert tick.decisions[0].state is SchedulerState.DUE

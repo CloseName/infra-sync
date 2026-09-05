@@ -129,6 +129,11 @@ prevents overlap; a record older than the shared WEB-7 stale threshold remains u
 but no longer blocks a new due attempt. The host-level `/run/infra-sync/apply.lock` remains
 the final serialization boundary.
 
+Registry-row conversion and schedule evaluation are isolated per source. An invalid row or
+evaluation anomaly becomes the bounded internal `SCHEDULE_EVALUATION_FAILED` outcome, creates no
+run-history attempt, and does not prevent healthy sources from being evaluated or executed. The
+scheduler summary reports `evaluation_failed` separately from execution and history failures.
+
 The API retains no source UPDATE privilege. Its narrowly mounted schedule socket reaches
 a dedicated worker with only a schedule-writer DSN. That worker accepts an exact typed
 operation and conditionally updates only `sync_enabled` and `sync_interval_seconds` using

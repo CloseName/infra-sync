@@ -154,6 +154,23 @@ def test_create_get_list_and_source_config_conversion(pg_registry):
     }
 
 
+def test_isolated_list_contains_malformed_row_without_blocking_valid_row(pg_registry):
+    registry, connect = pg_registry
+    registry.create_source(_config(id='a-invalid', source_instance='a-invalid'))
+    registry.create_source(_config(id='b-valid', source_instance='b-valid',
+                                   legacy_identity_owner=False))
+    with connect() as connection:
+        connection.execute(sql.SQL(
+            "UPDATE {} SET token_id_provider='unsupported' WHERE id='a-invalid'"
+        ).format(sql.Identifier(registry.schema, 'sources')))
+    with pytest.raises(ValueError, match='unsupported secret provider'):
+        registry.list_sources()
+    results = registry.list_sources_isolated()
+    assert tuple(result.valid for result in results) == (False, True)
+    assert results[0].record is None
+    assert results[1].record.source_instance == 'b-valid'
+
+
 def test_duplicate_id_and_source_instance_fail_without_partial_rows(pg_registry):
     registry, _ = pg_registry
     config = _config()

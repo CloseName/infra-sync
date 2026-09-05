@@ -92,8 +92,8 @@ export function SourcesPage() {
   return <main>
     <div className="page-heading"><div><p className="eyebrow">READ-ONLY REGISTRY</p>
       <h1>{selected ? 'Source details' : 'Sources'}</h1>
-      <p className="intro">Credentials are protected. Connectivity and authentication are not checked here.
-        Editing is not available.</p></div>
+      <p className="intro">Credentials and source identity are protected. Scheduling can be edited below.
+        Connectivity and authentication are not checked here.</p></div>
       <button disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button>
     </div>
     {selected && <button onClick={() => { setSelected(null); setDiscovery(null); setSyncPlan(null); setSyncResult(null); setSchedule(null); }}>Back to sources</button>}
