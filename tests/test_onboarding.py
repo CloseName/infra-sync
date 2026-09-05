@@ -126,6 +126,30 @@ def test_two_proxmox_sources_receive_distinct_secret_references():
     assert set(store.values) == first_keys | second_keys
 
 
+def test_similar_multi_provider_instances_never_collide_secret_keys():
+    instance, registry, store = service()
+    created = []
+    cases = (
+        ('proxmox', 'pve-a'), ('proxmox', 'pve_a'),
+        ('proxmox', 'pve-a-1'), ('esxi', 'esxi-a'),
+    )
+    for index, (source_type, source_instance) in enumerate(cases):
+        address = f'source-{index}.test'
+        token = instance.test_connection(credentials(source_type, address))
+        created.append(instance.register(command(
+            token, source_type, source_instance, address,
+        )))
+
+    keys = [
+        reference.key
+        for config in created
+        for reference in {config.credentials.token_id, config.credentials.token_secret}
+    ]
+    assert len(keys) == len(set(keys)) == 7
+    assert set(registry.records) == {item[1] for item in cases}
+    assert set(store.values) == set(keys)
+
+
 def test_duplicate_is_rejected_without_new_secret_or_mutation():
     instance, registry, store = service()
     first = instance.register(command(instance.test_connection(credentials())))

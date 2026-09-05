@@ -1,6 +1,7 @@
 """Runtime source selection and secret-resolution boundary tests."""
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,6 +13,7 @@ from netbox_pve_sync.source_bootstrap import (
     SourceBootstrapError,
     load_runtime_source_config,
     load_runtime_source_configs,
+    load_scheduler_source_configs,
     runtime_source_mode,
 )
 from netbox_pve_sync.source_config import SecretReference, SourceConfig
@@ -124,6 +126,35 @@ def test_registry_all_loads_runnable_sources_without_source_id():
     )
 
     assert configs == expected
+
+
+def test_scheduler_reloads_new_and_disabled_sources_without_process_restart():
+    registry = SimpleNamespace(configs=(sample_source_config(),))
+
+    def list_isolated():
+        return tuple(SimpleNamespace(
+            valid=True,
+            record=SimpleNamespace(to_source_config=lambda value=value: value),
+        ) for value in registry.configs)
+
+    registry.list_sources_isolated = list_isolated
+    factory = lambda _dsn, _schema: registry
+    first = load_scheduler_source_configs(
+        registry_all_environment(), registry_factory=factory,
+    )
+    second_source = replace(
+        sample_source_config(), id='esxi-b', source_instance='esxi-b',
+        source_type='esxi', sync_enabled=False, legacy_identity_owner=False,
+    )
+    registry.configs = (replace(sample_source_config(), sync_enabled=False), second_source)
+    second = load_scheduler_source_configs(
+        registry_all_environment(), registry_factory=factory,
+    )
+
+    assert [item.config.source_instance for item in first] == ['pve-infra-test']
+    assert [(item.config.source_instance, item.config.sync_enabled) for item in second] == [
+        ('pve-infra-test', False), ('esxi-b', False),
+    ]
 
 
 def test_registry_all_selects_runnable_proxmox_and_esxi_sources():
