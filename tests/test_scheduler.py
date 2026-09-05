@@ -136,13 +136,14 @@ def test_inventory_tick_evaluates_without_provider_or_history_writes():
     assert tick.execution.total == 0 and repo.started == []
 
 
-def test_tracked_fixed_tick_is_an_explicit_drop_in_and_shared_lock_is_unchanged():
-    drop_in = Path('deploy/systemd/infra-netbox-sync.timer.d/web8-fixed-tick.conf').read_text(
-        encoding='utf-8')
+def test_tracked_fixed_tick_is_final_and_shared_lock_is_unchanged():
+    timer = Path('deploy/systemd/infra-netbox-sync.timer').read_text(encoding='utf-8')
     service = Path('deploy/systemd/infra-netbox-sync.service').read_text(encoding='utf-8')
-    assert 'OnUnitActiveSec=\nOnUnitActiveSec=60s' in drop_in
-    assert 'AccuracySec=5s' in drop_in
-    assert '/usr/bin/flock -n /run/infra-sync/apply.lock' in service
+    wrapper = Path('scripts/run-scheduled-sync.sh').read_text(encoding='utf-8')
+    assert 'OnUnitActiveSec=60s' in timer
+    assert 'AccuracySec=5s' in timer
+    assert '/usr/bin/flock -n /run/infra-sync/apply.lock' in wrapper
+    assert '/usr/bin/flock' not in service
 
 
 def test_scheduler_loader_includes_disabled_waiting_and_runnable_sources():

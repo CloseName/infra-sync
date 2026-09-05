@@ -12,12 +12,12 @@ def test_scheduled_and_manual_apply_use_same_host_lock_directory():
     service = (ROOT / 'deploy' / 'systemd' / 'infra-netbox-sync.service').read_text(
         encoding='utf-8'
     )
-    compose = (ROOT / 'compose.web.yml').read_text(encoding='utf-8')
+    compose = (ROOT / 'compose.production.yml').read_text(encoding='utf-8')
+    wrapper = (ROOT / 'scripts' / 'run-scheduled-sync.sh').read_text(encoding='utf-8')
     assert 'ExecStartPre=/usr/bin/install -d -m 0750 /run/infra-sync' in service
-    assert (
-        'ExecStart=/usr/bin/flock -n /run/infra-sync/apply.lock '
-        '/opt/infra-sync/run-full-sync-registry.sh'
-    ) in service
+    assert 'ExecStart=/opt/infra-sync/current/scripts/run-scheduled-sync.sh' in service
+    assert '/usr/bin/flock -n /run/infra-sync/apply.lock' in wrapper
+    assert '/usr/bin/flock' not in service
     assert '${INFRA_SYNC_APPLY_LOCK_DIR:-/run/infra-sync}:/run/infra-sync-lock' in compose
     assert '--lock-path, /run/infra-sync-lock/apply.lock' in compose
     assert ':/run:/' not in compose

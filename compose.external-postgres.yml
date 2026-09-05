@@ -1,0 +1,14 @@
+# Optional override. Runtime DSNs must point at the operator-managed database.
+services:
+  postgres:
+    profiles: [bundled-postgres]
+  infra-sync-api:
+    networks: [infra-sync-web, infra-sync-egress]
+  infra-sync-schedule-worker:
+    networks: [infra-sync-egress]
+  infra-sync-db-roles:
+    networks: [infra-sync-egress]
+  infra-sync-migrate:
+    networks: [infra-sync-egress]
+  infra-sync-db-grants:
+    networks: [infra-sync-egress]

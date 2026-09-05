@@ -1,0 +1,185 @@
+name: ${INFRA_SYNC_COMPOSE_PROJECT:-infra-sync}
+
+x-app: &app
+  image: ${INFRA_SYNC_IMAGE:-infra-sync-app:local}
+  build:
+    context: .
+    dockerfile: Dockerfile.web
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging: &bounded-logging
+    driver: local
+    options:
+      max-size: 10m
+      max-file: "5"
+
+services:
+  postgres:
+    image: ${INFRA_SYNC_POSTGRES_IMAGE:-postgres:16-bookworm}
+    environment:
+      POSTGRES_DB: infra_sync
+      POSTGRES_USER: infra_sync_bootstrap
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_bootstrap_password
+    secrets: [postgres_bootstrap_password]
+    volumes:
+      - infra-sync-postgres:/var/lib/postgresql/data
+    networks: [infra-sync-db]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U infra_sync_bootstrap -d infra_sync"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    logging: *bounded-logging
+
+  infra-sync-api:
+    <<: *app
+    user: "10001:10001"
+    command: [uvicorn, "netbox_pve_sync.api.app:create_app", --factory, --host, "0.0.0.0", --port, "8000", --no-access-log]
+    env_file: ${INFRA_SYNC_CONFIG_DIR:-./deploy/examples}/api.env
+    ports:
+      - "127.0.0.1:${INFRA_SYNC_WEB_PORT:-8000}:8000"
+    volumes:
+      - infra-sync-broker-socket:/run/infra-sync-broker:ro
+      - infra-sync-discovery-socket:/run/infra-sync-discovery:ro
+      - infra-sync-apply-socket:/run/infra-sync-apply:ro
+      - infra-sync-schedule-socket:/run/infra-sync-schedule:ro
+    networks: [infra-sync-db, infra-sync-web]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=2).close()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  infra-sync-secret-broker:
+    <<: *app
+    user: "0:0"
+    group_add: ["10001"]
+    command: [python, -m, netbox_pve_sync.secret_broker, --socket, /run/infra-sync-broker/broker.sock, --secret-root, /var/lib/infra-sync/source-secrets, --allowed-uid, "10001"]
+    network_mode: none
+    cap_add: [CHOWN]
+    volumes:
+      - infra-sync-broker-socket:/run/infra-sync-broker
+      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-./deploy/example-secrets/sources}:/var/lib/infra-sync/source-secrets
+    restart: unless-stopped
+
+  infra-sync-discovery-worker:
+    <<: *app
+    user: "0:0"
+    command: [python, -m, netbox_pve_sync.discovery_worker, --socket, /run/infra-sync-discovery/worker.sock, --secret-root, /run/secrets/infra-sync, --source-secret-root, /run/secrets/infra-sync-sources, --netbox-token-file, /run/secrets/netbox/read-token, --api-uid, "10001", --child-uid, "10001", --child-gid, "10001"]
+    env_file: ${INFRA_SYNC_CONFIG_DIR:-./deploy/examples}/discovery.env
+    volumes:
+      - infra-sync-discovery-socket:/run/infra-sync-discovery
+      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-./deploy/example-secrets/sources}:/run/secrets/infra-sync-sources:ro
+      - ${INFRA_SYNC_NETBOX_SECRET_DIR:-./deploy/example-secrets/netbox}:/run/secrets/netbox:ro
+    networks: [infra-sync-db, infra-sync-egress]
+    cap_add: [SETUID, SETGID, CHOWN]
+    restart: unless-stopped
+
+  infra-sync-apply-worker:
+    <<: *app
+    user: "0:0"
+    command: [python, -m, netbox_pve_sync.apply_worker, --socket, /run/infra-sync-apply/worker.sock, --secret-root, /run/secrets/infra-sync, --source-secret-root, /run/secrets/infra-sync-sources, --netbox-token-file, /run/secrets/netbox/apply-token, --lock-path, /run/infra-sync-lock/apply.lock, --api-uid, "10001", --child-uid, "10001", --child-gid, "10001"]
+    env_file: ${INFRA_SYNC_CONFIG_DIR:-./deploy/examples}/apply.env
+    volumes:
+      - infra-sync-apply-socket:/run/infra-sync-apply
+      - ${INFRA_SYNC_APPLY_LOCK_DIR:-/run/infra-sync}:/run/infra-sync-lock
+      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-./deploy/example-secrets/sources}:/run/secrets/infra-sync-sources:ro
+      - ${INFRA_SYNC_NETBOX_SECRET_DIR:-./deploy/example-secrets/netbox}:/run/secrets/netbox:ro
+    networks: [infra-sync-db, infra-sync-egress]
+    cap_add: [SETUID, SETGID, CHOWN]
+    restart: unless-stopped
+
+  infra-sync-schedule-worker:
+    <<: *app
+    user: "0:0"
+    command: [python, -m, netbox_pve_sync.schedule_worker, --socket, /run/infra-sync-schedule/worker.sock, --api-uid, "10001"]
+    env_file: ${INFRA_SYNC_CONFIG_DIR:-./deploy/examples}/schedule.env
+    volumes:
+      - infra-sync-schedule-socket:/run/infra-sync-schedule
+    networks: [infra-sync-db]
+    cap_add: [CHOWN]
+    restart: unless-stopped
+
+  infra-sync-scheduler:
+    <<: *app
+    profiles: [scheduled]
+    user: "0:0"
+    command: [nbpxsync]
+    env_file: ${INFRA_SYNC_CONFIG_DIR:-./deploy/examples}/scheduler.env
+    volumes:
+      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-./deploy/example-secrets/sources}:/run/secrets/infra-sync-sources:ro
+      - ${INFRA_SYNC_NETBOX_SECRET_DIR:-./deploy/example-secrets/netbox}:/run/secrets/netbox:ro
+    networks: [infra-sync-db, infra-sync-egress]
+    restart: "no"
+
+  infra-sync-db-roles:
+    <<: *app
+    profiles: [tools]
+    user: "0:0"
+    command: [python, -m, netbox_pve_sync.deployment, bootstrap-roles]
+    environment:
+      INFRA_SYNC_DB_HOST: ${INFRA_SYNC_DB_HOST:-postgres}
+      INFRA_SYNC_DB_PORT: ${INFRA_SYNC_DB_PORT:-5432}
+      INFRA_SYNC_DB_NAME: ${INFRA_SYNC_DB_NAME:-infra_sync}
+      INFRA_SYNC_DB_PASSWORD_DIR: /run/secrets/infra-sync-db
+    volumes:
+      - ${INFRA_SYNC_INFRA_SECRET_DIR:-./deploy/example-secrets/infrastructure}:/run/secrets/infra-sync-db:ro
+    networks: [infra-sync-db]
+    restart: "no"
+
+  infra-sync-migrate:
+    <<: *app
+    profiles: [tools]
+    user: "0:0"
+    command: [python, -m, netbox_pve_sync.deployment, migrate]
+    environment:
+      INFRA_SYNC_DB_HOST: ${INFRA_SYNC_DB_HOST:-postgres}
+      INFRA_SYNC_DB_PORT: ${INFRA_SYNC_DB_PORT:-5432}
+      INFRA_SYNC_DB_NAME: ${INFRA_SYNC_DB_NAME:-infra_sync}
+      INFRA_SYNC_DB_PASSWORD_DIR: /run/secrets/infra-sync-db
+      INFRA_SYNC_REGISTRY_SCHEMA: infra_sync
+    volumes:
+      - ${INFRA_SYNC_INFRA_SECRET_DIR:-./deploy/example-secrets/infrastructure}:/run/secrets/infra-sync-db:ro
+    networks: [infra-sync-db]
+    restart: "no"
+
+  infra-sync-db-grants:
+    <<: *app
+    profiles: [tools]
+    user: "0:0"
+    command: [python, -m, netbox_pve_sync.deployment, apply-grants]
+    environment:
+      INFRA_SYNC_DB_HOST: ${INFRA_SYNC_DB_HOST:-postgres}
+      INFRA_SYNC_DB_PORT: ${INFRA_SYNC_DB_PORT:-5432}
+      INFRA_SYNC_DB_NAME: ${INFRA_SYNC_DB_NAME:-infra_sync}
+      INFRA_SYNC_DB_PASSWORD_DIR: /run/secrets/infra-sync-db
+      INFRA_SYNC_REGISTRY_SCHEMA: infra_sync
+    volumes:
+      - ${INFRA_SYNC_INFRA_SECRET_DIR:-./deploy/example-secrets/infrastructure}:/run/secrets/infra-sync-db:ro
+    networks: [infra-sync-db]
+    restart: "no"
+
+volumes:
+  infra-sync-postgres:
+    name: ${INFRA_SYNC_POSTGRES_VOLUME:-infra-sync-postgres-data}
+  infra-sync-broker-socket:
+  infra-sync-discovery-socket:
+  infra-sync-apply-socket:
+  infra-sync-schedule-socket:
+
+networks:
+  infra-sync-db:
+    internal: true
+  infra-sync-egress:
+  infra-sync-web:
+
+secrets:
+  postgres_bootstrap_password:
+    file: ${INFRA_SYNC_INFRA_SECRET_DIR:-./deploy/example-secrets/infrastructure}/postgres_bootstrap_password

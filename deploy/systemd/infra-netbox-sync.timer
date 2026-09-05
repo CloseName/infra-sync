@@ -1,10 +1,10 @@
 [Unit]
-Description=Run Infra Sync synchronization every 10 minutes
+Description=Run Infra Sync scheduler every 60 seconds
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=10min
-AccuracySec=30s
+OnBootSec=60s
+OnUnitActiveSec=60s
+AccuracySec=5s
 Persistent=true
 Unit=infra-netbox-sync.service
 
