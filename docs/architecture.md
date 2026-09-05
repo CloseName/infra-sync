@@ -1,8 +1,9 @@
-# Infra Sync architecture — WEB-0 foundation / WEB-1 read-only shell
+# Infra Sync architecture
 
-Status: an opt-in API and frontend now provide read-only health reporting.
-No worker daemon or new scheduler is enabled. Production runtime remains the
-authority. See [WEB-1](web.md) for the implemented boundary and startup commands.
+Status: the opt-in Web stack provides health, source visibility, discovery,
+confirmed manual synchronization and durable run history. The existing systemd
+registry-all scheduler remains the automatic execution authority. See
+[Web deployment](web.md) for boundaries and startup commands.
 
 ## Current state, verified from code
 
@@ -11,8 +12,9 @@ authority. See [WEB-1](web.md) for the implemented boundary and startup commands
   Registry-all reads `enabled AND sync_enabled`, ordered by source ID. It rejects
   multiple legacy identity owners. It does not enforce per-source intervals.
 - `orchestrator.run_sources` executes sequentially, isolates exceptions and
-  SystemExit per source, and reports aggregate success/failure. The CLI exits 1
-  if any selected source fails. There is no durable queue or run history.
+  SystemExit per source, and reports aggregate success/failure. In apply mode it
+  records a separate durable run for every selected source. The CLI exits 1 if
+  any selected source fails. There is no durable queue or automatic retry.
 - `SourceExecutorDispatch` selects Proxmox or ESXi. Source secrets resolve at
   their connection boundaries; discovery produces shared domain objects.
 - `execute_discovered_source` selects the NetBox read/write token at bootstrap.
@@ -74,7 +76,7 @@ changing the deployed CLI image before an approved cutover.
 | Worker | durable claim, invoke existing executor, record result | bypass prechecks, grant itself confirmation, run overlapping applies |
 | Sync/domain | discovery, identities, planners and guarded appliers | depend on API/frontend |
 | Registry/data access | source configuration and concurrency rules | hold plaintext credentials |
-| PostgreSQL | registry now; jobs/history later in additive tables | become a second copy of NetBox inventory |
+| PostgreSQL | registry and additive sync run history | become a second copy of NetBox inventory |
 | Frontend | views of safe API DTOs and explicit operator intent | connect directly to PostgreSQL/NetBox/source APIs |
 | SecretReader | resolve a SecretReference only at execution | serialize the resolved value |
 | Scheduler | submit due work through the same application port | perform reconciliation or run beside an independent competing scheduler |
@@ -83,23 +85,20 @@ The new contracts do not hook into the existing CLI. `SecretReader` structurally
 matches FileSecretResolver. `PreflightSubmitter` is deliberately read-only intent;
 there is no implemented queue and no generic `confirmed=True` web command.
 
-## Future request/run flow
+## Current request/run flow
 
 ```text
-API request or scheduler tick
-  -> application service: validate source + create RunContext
-  -> PostgreSQL job transaction (future)
-  -> worker claims job with same run_id
-  -> existing SourceExecutorDispatch -> adapter -> discovery -> guarded runtime
-  -> allowlisted result/events -> PostgreSQL history -> API DTO -> frontend
+manual API request -> apply worker -> INSERT RUNNING -> existing confirmed guarded runtime
+                   -> UPDATE terminal -> safe API result with run_id
+systemd registry-all -> per source INSERT RUNNING -> SourceExecutorDispatch
+                     -> guarded runtime -> per source UPDATE terminal
+history GET -> read-only API role -> explicit DTO -> Runs frontend
 ```
 
-Allocate a UUID once per source execution. Persist/transport its canonical string;
-rehydrate the same UUID in the worker. Never create a new ID at each layer. A
-multi-source request will have a separate batch/request ID and one run_id per
-source. Worker delivery retry reuses that ID; a new operator-triggered run gets a
-new ID. A repeated apply is not authorized merely because its run_id matches.
-Future crash recovery must distinguish unknown/partial apply from safe retry.
+Allocate a UUID once per source execution. A multi-source scheduler iteration has
+one run_id per source, not an opaque batch row. A repeated apply is never authorized
+merely because its run_id matches. WEB-6 has no delivery retry or crash recovery;
+an interrupted RUNNING row remains visible for later operator diagnosis.
 
 Legacy CLI consumes environment variables and prints text. WEB-1 must introduce
 an injectable bootstrap adapter before concurrent request execution; do not set

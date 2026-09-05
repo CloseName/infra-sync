@@ -14,6 +14,12 @@ th { color: #58707b; }
 .source-detail div { display: grid; grid-template-columns: minmax(120px, 1fr) 2fr; gap: 15px; padding: 10px 0; }
 dt { color: #58707b; } dd { margin: 0; overflow-wrap: anywhere; }
 .source-error { background: #fde9e6; color: #a13834; padding: 20px; border-radius: 7px; }
+.run-detail { margin-top: 28px; display: grid; gap: 18px; }
+.run-status { display: inline-block; padding: 5px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; }
+.run-status-succeeded { color: #0d6855; background: #e4f5ed; }
+.run-status-running { color: #83560a; background: #fff1cf; }
+.run-status-locked, .run-status-blocked { color: #83560a; background: #fff1cf; }
+.run-status-failed, .run-status-failed_before_write, .run-status-partially_applied, .run-status-outcome_uncertain { color: #a13834; background: #fde9e6; }
 body { margin: 0; }
 .topbar { height: 76px; background: #152c37; color: white; display: flex; align-items: center; justify-content: space-between; padding: 0 5vw; }
 .brand { font-size: 25px; font-weight: 700; letter-spacing: -.8px; color: white; text-decoration: none; }

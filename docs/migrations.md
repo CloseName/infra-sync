@@ -36,6 +36,12 @@ validation requires a live PostgreSQL connection.
   stopped during migration. Runtime never invokes migrations automatically.
 - Repeating upgrade head does nothing after success. Downgrade is deliberately
   rejected. Use additive, reviewed forward fixes; do not autogenerate drops.
+- Revision `0002_sync_run_history` adds only `sync_runs`, its constraints and
+  indexes. It does not update `sources`, `schema_meta`, identity metadata or the
+  legacy registry version (`schema_version=1`). An existing exact v1 registry is
+  first validated/stamped by the baseline in the same migration transaction,
+  then receives the additive history table. A partial, drifted or newer legacy
+  schema still fails closed before WEB-6 DDL is committed.
 - Current SourceRegistry.initialize() remains unchanged for compatibility. Once
   migrated, operators use Alembic for schema evolution rather than extending
   initialize(). Future revisions must remain independent of mutable runtime code.
@@ -53,6 +59,11 @@ populated legacy adoption, repeated upgrade, unknown version and rollback. Set
 Tests create unique schemas and remove only their own schemas on cleanup. Never
 point this variable at a production database. PostgreSQL tests may skip when the
 test DSN is absent; such a pass is not evidence of a live migration rehearsal.
+
+WEB-6 adds opt-in round-trip coverage for RUNNING/terminal lifecycle, duration,
+counts, snapshots, newest-first listing and filters. The migration owner remains
+separate from the runtime run-writer role. Exact runtime grants and the production
+rollout checklist are documented in [Web deployment](web.md#web-6-durable-run-history).
 
 The connection-sharing/transaction approach follows the
 [official Alembic cookbook](https://alembic.sqlalchemy.org/en/latest/cookbook.html#sharing-a-connection-across-one-or-more-programmatic-migration-commands).
