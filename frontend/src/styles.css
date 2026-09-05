@@ -48,5 +48,10 @@ code { font-size: 11px; color: #8d432d; display: block; margin-top: 12px; }
 .status-degraded { color: #83560a; background: #fff1cf; }
 .status-unavailable { color: #a13834; background: #fde9e6; }
 .status-unknown { color: #536a77; background: #edf1f4; }
+.diagnostic-status { display: inline-block; padding: 6px 10px; border-radius: 5px; font-size: 11px; font-weight: 700; }
+.diagnostic-healthy { color: #0d6855; background: #e4f5ed; }
+.diagnostic-degraded, .diagnostic-unknown { color: #83560a; background: #fff1cf; }
+.diagnostic-unhealthy, .diagnostic-unavailable { color: #a13834; background: #fde9e6; }
+.diagnostic-warnings { display: grid; gap: 12px; margin-top: 28px; }
 .page-footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #6b828c; margin-top: 30px; line-height: 1.7; }
 @media (max-width: 660px) { main { padding: 30px 18px; } .page-heading, .overview { align-items: flex-start; flex-direction: column; } .components { grid-template-columns: 1fr; } .topbar { padding: 0 20px; } .mode { font-size: 9px; } }

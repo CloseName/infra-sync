@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..application.health import HealthStatus
+from ..application.diagnostics import DiagnosticStatus
 from ..application.observability import ErrorCode
 
 
@@ -56,6 +57,110 @@ class LivenessDTO(PublicModel):
     """Cheap process liveness; no database access."""
 
     status: HealthStatus = HealthStatus.HEALTHY
+
+
+class DiagnosticComponentDTO(PublicModel):
+    """Bounded diagnostic component projection."""
+
+    status: Literal['HEALTHY', 'DEGRADED', 'UNAVAILABLE', 'UNKNOWN']
+    checked_at: datetime
+    safe_code: Literal['REGISTRY_UNAVAILABLE', 'RUN_HISTORY_UNAVAILABLE',
+                       'DISCOVERY_WORKER_UNAVAILABLE', 'APPLY_WORKER_UNAVAILABLE',
+                       'SCHEDULED_ACTIVITY_DELAYED'] | None = None
+    safe_message: str | None = None
+    last_seen_at: datetime | None = None
+    last_success_at: datetime | None = None
+    next_expected_at: datetime | None = None
+
+
+class DiagnosticComponentsDTO(PublicModel):
+    """Explicitly enumerate every operator-visible component."""
+
+    api: DiagnosticComponentDTO
+    registry: DiagnosticComponentDTO
+    run_history: DiagnosticComponentDTO
+    discovery_worker: DiagnosticComponentDTO
+    apply_worker: DiagnosticComponentDTO
+    scheduler: DiagnosticComponentDTO
+
+
+class DiagnosticRunDTO(PublicModel):
+    """Small run reference used by source diagnostics."""
+
+    run_id: UUID
+    trigger: Literal['manual', 'scheduled']
+    status: Literal['RUNNING', 'SUCCEEDED', 'FAILED_BEFORE_WRITE', 'PARTIALLY_APPLIED',
+                    'OUTCOME_UNCERTAIN', 'BLOCKED', 'LOCKED', 'FAILED']
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class DiagnosticWarningDTO(PublicModel):
+    """Closed warning without raw implementation detail."""
+
+    warning_code: Literal['STALE_RUNNING', 'SCHEDULED_ACTIVITY_DELAYED']
+    safe_message: str = Field(max_length=256)
+    source_instance: str | None = None
+    source_type: Literal['proxmox', 'esxi'] | None = None
+    trigger: Literal['manual', 'scheduled'] | None = None
+    run_id: UUID | None = None
+    started_at: datetime | None = None
+    age_seconds: int | None = Field(default=None, ge=0)
+
+
+class SourceDiagnosticDTO(PublicModel):
+    """Allowlisted per-source diagnostic state."""
+
+    source_instance: str
+    source_type: Literal['proxmox', 'esxi']
+    enabled: bool
+    sync_enabled: bool
+    sync_interval_seconds: int = Field(gt=0)
+    status: DiagnosticStatus
+    latest_run: DiagnosticRunDTO | None
+    latest_success_at: datetime | None
+    latest_scheduled_run: DiagnosticRunDTO | None
+    latest_manual_run: DiagnosticRunDTO | None
+    warning_count: int = Field(ge=0)
+    warnings: list[Literal['STALE_RUNNING', 'SCHEDULED_ACTIVITY_DELAYED']]
+
+
+class DiagnosticsDTO(PublicModel):
+    """Safe aggregate diagnostics response."""
+
+    overall_status: Literal['HEALTHY', 'DEGRADED', 'UNHEALTHY']
+    generated_at: datetime
+    components: DiagnosticComponentsDTO
+    sources: list[SourceDiagnosticDTO]
+    stale_runs: list[DiagnosticWarningDTO]
+    warnings: list[DiagnosticWarningDTO]
+
+    @classmethod
+    def from_result(cls, result):
+        """Copy only explicitly public diagnostic fields."""
+        component_names = ('api', 'registry', 'run_history', 'discovery_worker',
+                           'apply_worker', 'scheduler')
+        components = DiagnosticComponentsDTO(**{
+            name: DiagnosticComponentDTO(**vars(result.components[name]))
+            for name in component_names
+        })
+        sources = [SourceDiagnosticDTO(
+            source_instance=value.source_instance, source_type=value.source_type,
+            enabled=value.enabled, sync_enabled=value.sync_enabled,
+            sync_interval_seconds=value.sync_interval_seconds, status=value.status,
+            latest_run=DiagnosticRunDTO(**vars(value.latest_run)) if value.latest_run else None,
+            latest_success_at=value.latest_success_at,
+            latest_scheduled_run=(DiagnosticRunDTO(**vars(value.latest_scheduled_run))
+                                  if value.latest_scheduled_run else None),
+            latest_manual_run=(DiagnosticRunDTO(**vars(value.latest_manual_run))
+                               if value.latest_manual_run else None),
+            warning_count=value.warning_count, warnings=list(value.warnings),
+        ) for value in result.sources]
+        warning = lambda value: DiagnosticWarningDTO(**vars(value))
+        return cls(overall_status=result.overall_status.value,
+                   generated_at=result.generated_at, components=components,
+                   sources=sources, stale_runs=[warning(value) for value in result.stale_runs],
+                   warnings=[warning(value) for value in result.warnings])
 
 
 class VersionDTO(PublicModel):

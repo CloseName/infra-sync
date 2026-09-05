@@ -16,12 +16,14 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 
 from ..application.health import SystemHealthService
+from ..application.diagnostics import DiagnosticsService
 from ..application.sources import SourceReadError, SourceVisibilityService
 from ..application.sources import source_view
 from ..application.runs import RunHistoryService, RunReadError
 from ..application.onboarding import EphemeralOnboardingStore, OnboardingError, SourceOnboardingService
 from .database import PostgresHealthProbe
-from .dto import ErrorDTO, ErrorDetailDTO, LivenessDTO, SystemHealthDTO, VersionDTO
+from .dto import (DiagnosticsDTO, ErrorDTO, ErrorDetailDTO, LivenessDTO,
+                  SystemHealthDTO, VersionDTO)
 from .settings import ApiSettings, application_version
 from .source_reader import PostgresSourceReader
 from .dto import (ApplyRequestDTO, ApplyResultDTO, ConfirmationDTO, ConfirmationRequestDTO,
@@ -33,6 +35,7 @@ from .onboarding_dto import ConnectionRequest, ConnectionResult, RegistrationReq
 from .onboarding_dto import CancellationRequest, CancellationResult
 from .onboarding_adapters import BrokerSecretStore, RegistrationRegistry, test_esxi, test_proxmox
 from .run_reader import PostgresRunReader
+from .worker_health import WorkerHealthClient
 
 LOGGER = logging.getLogger('infra_sync.api')
 
@@ -116,6 +119,7 @@ def _install_boundaries(app, settings):
         request.state.request_id = str(uuid4())
         request.state.error_code = None
         request.state.run_id = None
+        request.state.diagnostics_status = None
         try:
             if request.method == 'POST' and (
                     request.url.path in (
@@ -157,6 +161,7 @@ def _install_boundaries(app, settings):
             'error_code': request.state.error_code,
             'message': 'HTTP request completed',
             'status_code': response.status_code,
+            'diagnostics_status': request.state.diagnostics_status,
         }))
         return response
 
@@ -173,7 +178,8 @@ def _install_boundaries(app, settings):
 
 
 def create_app(settings=None, service=None, source_service=None, onboarding_service=None,
-               discovery_client=None, apply_client=None, run_service=None):
+               discovery_client=None, apply_client=None, run_service=None,
+               diagnostics_service=None):
     """Construct without DB access; all environment reading is confined to bootstrap."""
     if not LOGGER.handlers:
         LOGGER.addHandler(logging.StreamHandler())
@@ -192,6 +198,12 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
     discovery_client = discovery_client or DiscoveryWorkerClient(settings.discovery_socket)
     apply_client = apply_client or ApplyWorkerClient(settings.apply_socket)
     run_service = run_service or RunHistoryService(PostgresRunReader(settings))
+    diagnostics_service = diagnostics_service or DiagnosticsService(
+        source_service, PostgresRunReader(settings),
+        WorkerHealthClient(settings.discovery_socket),
+        WorkerHealthClient(settings.apply_socket),
+        settings.diagnostics_stale_seconds,
+    )
     app = FastAPI(title='Infra Sync', version=application_version(),
                   docs_url=None, redoc_url=None, openapi_url=None, debug=False)
     _install_boundaries(app, settings)
@@ -204,6 +216,12 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
     @router.get('/system/health', response_model=SystemHealthDTO)
     def system_health():
         return SystemHealthDTO.from_result(service.check())
+
+    @router.get('/diagnostics', response_model=DiagnosticsDTO)
+    def diagnostics(request: Request):
+        result = diagnostics_service.check()
+        request.state.diagnostics_status = result.overall_status.value
+        return DiagnosticsDTO.from_result(result)
 
     @router.get('/version', response_model=VersionDTO)
     def version():

@@ -284,6 +284,39 @@ class RunRepository:
                 rows = db_cursor.fetchall()
         return tuple(self._row(row) for row in rows)
 
+    def latest_by_source(self, *, trigger=None, status=None):
+        """Return one newest indexed record per source for a fixed filter."""
+        clauses, parameters = [], []
+        if trigger is not None:
+            clauses.append(sql.SQL('"trigger"=%s'))
+            parameters.append(RunTrigger(trigger).value)
+        if status is not None:
+            clauses.append(sql.SQL('status=%s'))
+            parameters.append(RunStatus(status).value)
+        query = sql.SQL('SELECT DISTINCT ON (source_instance) {} FROM {}').format(
+            sql.SQL(RUN_COLUMN_LIST), self._table())
+        if clauses:
+            query += sql.SQL(' WHERE ') + sql.SQL(' AND ').join(clauses)
+        query += sql.SQL(' ORDER BY source_instance, started_at DESC, run_id DESC')
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query, tuple(parameters))
+                rows = cursor.fetchall()
+        return tuple(self._row(row) for row in rows)
+
+    def stale_running(self, started_before, limit=100):
+        """Return a bounded oldest-first list without changing lifecycle state."""
+        if not isinstance(started_before, datetime) or not 1 <= limit <= 100:
+            raise ValueError('valid stale boundary and limit required')
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(sql.SQL('''SELECT {} FROM {}
+                    WHERE status='RUNNING' AND started_at < %s
+                    ORDER BY started_at ASC, run_id ASC LIMIT %s''').format(
+                        sql.SQL(RUN_COLUMN_LIST), self._table()), (started_before, limit))
+                rows = cursor.fetchall()
+        return tuple(self._row(row) for row in rows)
+
 
 def postgres_run_repository(dsn, schema):
     """Build the writer boundary, failing closed when deployment is incomplete."""

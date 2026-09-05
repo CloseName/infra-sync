@@ -3,6 +3,7 @@
 import psycopg
 
 from ..run_history import RunRepository
+from ..application.diagnostics import HistorySnapshot
 
 
 class PostgresRunReader:
@@ -32,3 +33,15 @@ class PostgresRunReader:
     def get_run(self, run_id):
         """Read one public UUID."""
         return self._repository().get_run(run_id)
+
+    def diagnostics_snapshot(self, stale_before, stale_limit):
+        """Use a fixed number of bounded/indexed history queries, never N+1 reads."""
+        repository = self._repository()
+        return HistorySnapshot(
+            repository.latest_by_source(),
+            repository.latest_by_source(status='SUCCEEDED'),
+            repository.latest_by_source(trigger='scheduled'),
+            repository.latest_by_source(trigger='manual'),
+            repository.stale_running(stale_before, stale_limit),
+            repository.latest_by_source(trigger='scheduled', status='SUCCEEDED'),
+        )

@@ -75,6 +75,31 @@ def test_repository_surface_has_no_delete_operation():
     assert not hasattr(RunRepository, 'delete_run')
 
 
+def test_diagnostics_queries_return_latest_and_bounded_stale_runs(history_database):
+    repository, _dsn = history_database
+    now = datetime(2026, 9, 5, 12, tzinfo=timezone.utc)
+    ticks = iter((now - timedelta(hours=4), now - timedelta(hours=3),
+                  now - timedelta(hours=1),
+                  now - timedelta(hours=1) + timedelta(seconds=1)))
+    diagnostic_repository = RunRepository(
+        repository._connection_factory, repository.schema,  # pylint: disable=protected-access
+        clock=lambda: next(ticks))
+    stale = diagnostic_repository.start_run(
+        'pve-test', 'proxmox', RunTrigger.SCHEDULED, 'system/scheduler')
+    diagnostic_repository.start_run(
+        'esxi-test', 'esxi', RunTrigger.SCHEDULED, 'system/scheduler')
+    success = diagnostic_repository.start_run(
+        'pve-test', 'proxmox', RunTrigger.MANUAL, 'web/manual')
+    diagnostic_repository.finish_run(success.run_id, RunStatus.SUCCEEDED)
+
+    latest = {item.source_instance: item for item in diagnostic_repository.latest_by_source()}
+    assert latest['pve-test'].run_id == success.run_id
+    assert diagnostic_repository.latest_by_source(status='SUCCEEDED')[0].run_id == success.run_id
+    assert diagnostic_repository.latest_by_source(trigger='manual')[0].run_id == success.run_id
+    bounded = diagnostic_repository.stale_running(now - timedelta(hours=2), limit=1)
+    assert len(bounded) == 1 and bounded[0].run_id == stale.run_id
+
+
 def test_narrow_run_writer_can_only_insert_and_finalize_history(history_database):
     repository, dsn = history_database
     role = 'infra_sync_test_run_writer_' + uuid.uuid4().hex

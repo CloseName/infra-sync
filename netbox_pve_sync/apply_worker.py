@@ -298,6 +298,8 @@ def _receive(connection):
         request = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise ApplyWorkerError('REQUEST_INVALID') from None
+    if request == {'operation': 'health'}:
+        return request
     operation = request.get('operation') if isinstance(request, dict) else None
     allowed = ({'operation', 'source_instance', 'plan_digest'} if operation == 'prepare'
                else {'operation', 'source_instance', 'confirmation_token'})
@@ -321,6 +323,15 @@ def _authorize(connection, uid):
         raise ApplyWorkerError('PEER_FORBIDDEN')
 
 
+def _handle_request(supervisor, request):
+    """Answer health before any confirmation, lock, credential, or apply boundary."""
+    if request['operation'] == 'health':
+        return {'status': 'ok'}
+    if request['operation'] == 'prepare':
+        return supervisor.prepare(request['source_instance'], request['plan_digest'])
+    return supervisor.apply(request['source_instance'], request['confirmation_token'])
+
+
 def serve(socket_path, supervisor, allowed_uid):
     """Serve only fixed prepare/apply operations to the API UID."""
     path = Path(socket_path)
@@ -340,10 +351,7 @@ def serve(socket_path, supervisor, allowed_uid):
                 try:
                     _authorize(connection, allowed_uid)
                     request = _receive(connection)
-                    result = (supervisor.prepare(request['source_instance'], request['plan_digest'])
-                              if request['operation'] == 'prepare' else
-                              supervisor.apply(request['source_instance'],
-                                               request['confirmation_token']))
+                    result = _handle_request(supervisor, request)
                     response = {'ok': True, 'result': result}
                 except ApplyWorkerError as exc:
                     response = {'ok': False, 'error': exc.code}

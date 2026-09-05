@@ -1,7 +1,7 @@
 # Infra Sync architecture
 
-Status: the opt-in Web stack provides health, source visibility, discovery,
-confirmed manual synchronization and durable run history. The existing systemd
+Status: the opt-in Web stack provides health, diagnostics, source visibility,
+discovery, confirmed manual synchronization and durable run history. The existing systemd
 registry-all scheduler remains the automatic execution authority. See
 [Web deployment](web.md) for boundaries and startup commands.
 
@@ -93,6 +93,7 @@ manual API request -> apply worker -> INSERT RUNNING -> existing confirmed guard
 systemd registry-all -> per source INSERT RUNNING -> SourceExecutorDispatch
                      -> guarded runtime -> per source UPDATE terminal
 history GET -> read-only API role -> explicit DTO -> Runs frontend
+diagnostics GET -> source/history readers + socket health -> safe aggregate DTO
 ```
 
 Allocate a UUID once per source execution. A multi-source scheduler iteration has
@@ -106,6 +107,18 @@ the batch. Failure to finalize history preserves the actual source execution res
 reports `FINALIZE_FAILED`, and continues. Neither write is retried and no raw database
 exception is included in the runtime summary. The process exits nonzero after the
 complete batch when either source execution or history persistence failed.
+
+WEB-7 keeps liveness separate from diagnostics. `/api/v1/health` is constant-time
+process liveness. `/api/v1/diagnostics` performs failure-isolated, read-only registry
+and history checks plus exact health operations over the existing peer-authenticated
+worker sockets. Health never invokes a worker child, resolves credentials, reads
+NetBox, or executes discovery/apply. The API receives no new privilege.
+
+Scheduled status is explicitly an activity inference, not systemd state: persisted
+scheduled runs are compared with each enabled/sync-enabled source interval using a
+minimum 30-minute safety window. The API never calls systemctl, DBus, Docker, or a
+host command. Stale RUNNING is a bounded read-only warning after the configured
+threshold (default two hours); it is never finalized, deleted, retried, or recovered.
 
 Legacy CLI consumes environment variables and prints text. WEB-1 must introduce
 an injectable bootstrap adapter before concurrent request execution; do not set

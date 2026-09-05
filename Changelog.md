@@ -6,6 +6,7 @@
 
 - Persist separate manual and scheduled synchronization outcomes in PostgreSQL.
 - Add read-only run history list/detail API endpoints and an operator Runs view.
+- Add safe read-only diagnostics for registry, history, workers, scheduled activity, and sources.
 
 ## [0.2.4] - 02/09/2025
 

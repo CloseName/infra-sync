@@ -662,3 +662,43 @@ Do not run these steps automatically or against production without approval:
 8. Restart/reboot API and workers and confirm prior rows remain visible.
 9. Audit container environments, grants and logs for DSNs, tokens, raw provider
    failures and other secret values before enabling normal operation.
+
+# WEB-7 read-only diagnostics
+
+`GET /api/v1/health` remains lightweight process liveness and is still the container
+healthcheck target. `GET /api/v1/diagnostics` is a separate operator snapshot with
+closed overall/component/source states. It reads the existing source projection and
+`sync_runs`, checks both worker sockets with an exact `{"operation":"health"}` request,
+and returns partial HTTP 200 diagnostics when one dependency is unavailable.
+
+Worker health is answered in the root supervisor request loop before source lookup.
+It accepts no source, starts no child, reads no registry row, source secret or NetBox
+token, and performs no discovery/apply. The API uses a one-second socket timeout and
+accepts only `{"ok":true,"result":{"status":"ok"}}`. Raw socket errors and paths are
+not returned.
+
+Scheduled Activity is inferred from persisted scheduled runs. It does not claim that
+the systemd timer is loaded or active. An enabled/sync-enabled source becomes delayed
+when its latest scheduled attempt is older than twice its configured interval, with a
+minimum 30-minute threshold. No scheduled history is `UNKNOWN`, not a false failure.
+
+RUNNING records older than `INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS` are reported as
+`STALE_RUNNING`; the default is 7200 seconds and accepted bounds are 300 through
+604800 seconds. At most 100 stale records are returned. Detection is SELECT-only:
+WEB-7 never updates, deletes, finalizes, retries, or clears an abandoned run.
+
+Source rules are deterministic: no runs or disabled source is `UNKNOWN`; latest
+success without warnings is `HEALTHY`; latest failure with an earlier success,
+delayed activity, or stale RUNNING is `DEGRADED`; a terminal failure with no prior
+success is `UNHEALTHY`. Worker/history partial failures degrade the aggregate;
+unreadable registry makes it unhealthy because source evaluation is unavailable.
+
+History diagnostics use a fixed number of indexed queries (`DISTINCT ON` latest per
+source plus a bounded 100-row stale query), not one query per source. Existing source/time,
+status, and trigger indexes are used; no migration or new database permission is
+required beyond the WEB-6 API reader's SELECT on `sync_runs`.
+
+Deferred: abandoned-run cleanup, recovery/retry, scheduler editing, live systemd
+status, raw logs, notifications, RBAC/LDAP, and broader UI redesign. Do not give the
+API Docker socket, DBus/systemd access, run-writer DSN, apply token, source secrets,
+or host write access for diagnostics.

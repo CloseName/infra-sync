@@ -220,6 +220,8 @@ def _receive(connection):
         request = json.loads(data)
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise WorkerError('REQUEST_INVALID') from None
+    if request == {'operation': 'health'}:
+        return None, 'health'
     if set(request) not in ({'source_instance'}, {'source_instance', 'operation'}) \
             or request.get('operation', 'discover') not in ('discover', 'plan') \
             or not SOURCE_INSTANCE_PATTERN.fullmatch(request.get('source_instance', '')):
@@ -234,6 +236,11 @@ def _authorize_peer(connection, allowed_uid):
         socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize('3i')))
     if uid != allowed_uid:
         raise WorkerError('PEER_FORBIDDEN')
+
+
+def _handle_request(supervisor, instance, operation):
+    """Answer health without touching registry, secrets, NetBox, or a child."""
+    return {'status': 'ok'} if operation == 'health' else supervisor.run(instance, operation)
 
 
 def serve(socket_path, supervisor, allowed_uid):
@@ -262,7 +269,7 @@ def serve(socket_path, supervisor, allowed_uid):
                 try:
                     _authorize_peer(connection, allowed_uid)
                     instance, operation = _receive(connection)
-                    result = {'ok': True, 'result': supervisor.run(instance, operation)}
+                    result = {'ok': True, 'result': _handle_request(supervisor, instance, operation)}
                 except WorkerError as exc:
                     result = {'ok': False, 'error': exc.code}
                 except Exception:  # pylint: disable=broad-exception-caught

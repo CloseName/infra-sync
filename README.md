@@ -13,7 +13,8 @@ Disappearance is retain-only; synchronization does not delete NetBox objects.
 The current registry-backed runtime and the Web/API foundation are documented in
 [Architecture](docs/architecture.md), [Development](docs/development.md), and
 [Database migrations](docs/migrations.md). The opt-in [Web stack](docs/web.md)
-includes durable manual/scheduled run history and does not replace the existing systemd scheduler.
+includes durable manual/scheduled run history and read-only operator diagnostics; it does not
+replace or control the existing systemd scheduler.
 The legacy setup notes below do not
 describe the complete current registry-all deployment.
 
