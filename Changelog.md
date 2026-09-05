@@ -10,6 +10,8 @@
 - Add derived per-source scheduling and an isolated schedule-control worker.
 - Canonicalize ESXi UUID identities, isolate malformed VM/NIC inventory safely, and
   document the tested standalone ESXi and multi-source production contract.
+- Stabilize Proxmox NIC identity on provider `netX` keys, reject ambiguous VMIDs,
+  isolate malformed workload/NIC records, and document the PVE 9.1.9 validation contract.
 
 ## [0.2.4] - 02/09/2025
 

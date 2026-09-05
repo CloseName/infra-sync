@@ -294,3 +294,66 @@ Each registry row carries its own username and opaque token/password references.
 Onboarded sources receive distinct logical file-secret keys, resolved only at the
 provider boundary; there is no global credential fallback for registry sources. The
 legacy environment loader remains an explicit single-Proxmox compatibility path.
+
+## Proxmox production contract
+
+The production validation baseline is Proxmox VE 9.1.9. The adapter consumes the
+cluster status, node status, disk, storage, network, QEMU, QEMU config/guest-agent,
+and LXC config endpoints through one proxmoxer client per source execution. The client
+is reused for the source rather than recreated per guest. Proxmoxer's HTTPS backend
+supplies a five-second request timeout by default, and the Web discovery/apply
+supervisors enforce bounded child lifetimes. QEMU guest network lookup remains one API
+call per VM. Sources execute sequentially; parallel execution remains deferred.
+
+The registry source is the configured Proxmox API scope and may return multiple nodes;
+workloads moving between those nodes retain identity. Host identity uses the provider
+node key because the audited API does not supply a more reliable immutable host UUID.
+A Proxmox node rename is therefore an identity change requiring explicit migration;
+FQDN or cosmetic NetBox display changes never authorize adoption.
+
+Proxmox v2 identities are source-scoped and display-name independent:
+
+- host: `proxmox / source_instance / host / <node key>`;
+- QEMU: `proxmox / source_instance / qemu / <positive VMID>`;
+- LXC: `proxmox / source_instance / lxc / <positive VMID>`;
+- QEMU NIC: `proxmox / source_instance / qemu-nic / <VMID>:<netX key>`;
+- LXC NIC: `proxmox / source_instance / lxc-nic / <VMID>:<netX key>`.
+
+VMIDs accept only positive integers or strict decimal strings. Booleans, zero,
+negatives, empty/fractional/coercible values, and other text are rejected. Rename,
+status, node placement, CPU/memory/disk, MAC, bridge, VLAN, and NIC display-label
+changes do not alter identity. Older LXC v2 NIC identity used the guest-visible name
+(for example `eth0`). Matching now reads only that exact source-scoped LXC identity
+and rewrites it to the provider `netX` key on the next managed update. It cannot match
+another source, kind, VMID, or an unmanaged name-only interface.
+
+`legacy_identity_owner=true` is a bounded migration permission for existing Proxmox
+v1 records such as `node:VMID` and `node:lxc:VMID`; it is not name adoption, and v2 is
+always preferred. Registry-all bootstrap permits at most one runnable legacy owner.
+New sources default to false, so a second Proxmox source cannot claim those unscoped
+historical identities. Moving ownership requires an explicit migration review because
+v1 itself has no source_instance.
+
+Malformed QEMU/LXC VMIDs or config/resource objects and malformed individual `netX`
+records are omitted with bounded source-scoped warnings while valid siblings continue.
+Retain-only policy means omission never deletes a prior NetBox object. Unavailable or
+malformed guest-agent data removes only learned guest IP evidence; it does not remove
+the VM or enable the agent. Provider/session, node-root, and target failures still fail
+the source. Unknown states map conservatively to stopped; suspended maps to paused.
+
+Existing guarded planners/appliers still enforce exact target Site/Cluster, duplicate
+identity, foreign IP/MAC, name-only adoption, and primary-IP checks before writes.
+Missing VLANs/Prefixes are not created. Invalid, loopback, link-local, multicast, and
+unspecified addresses are rejected by shared network boundaries. Proven same-VM manual
+primary IPv4 is preserved; unverifiable/foreign ownership blocks. Disappeared workloads
+and NICs are retained, never deleted, and manual fields/custom fields are preserved.
+
+Each registry row has its own immutable source_instance, endpoint, TLS choice, target,
+username, and opaque secret references. The resolver accepts logical keys under a fixed
+root, and runtime resolves only the selected source. Web onboarding creates distinct
+keys, defaults automatic sync off, and cannot edit source_instance. The legacy
+environment loader remains an explicit single-source compatibility path.
+
+Deferred limitations: node-rename migration, broader PVE version certification,
+cluster-topology redesign, parallel discovery, guest-agent N+1 optimization, and final
+live Multi-Source Validation.

@@ -19,6 +19,8 @@ systemd remains a fixed tick engine.
 The standalone ESXi identity, compatibility, and safe multi-source validation contract
 is documented in [Architecture](docs/architecture.md) and the
 [operator runbook](docs/web.md#esxi-production-like-multi-source-validation-operator-runbook).
+The Proxmox identity and legacy-compatibility contract is documented alongside the
+[Proxmox production-like validation runbook](docs/web.md#proxmox-production-like-validation-operator-runbook).
 The legacy setup notes below do not
 describe the complete current registry-all deployment.
 

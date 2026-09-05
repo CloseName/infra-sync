@@ -793,3 +793,36 @@ change is requested. It is a checklist, not an automated production test:
 Prefer `verify_ssl=true` after a trusted ESXi certificate chain is installed. Do not
 silently change an existing source's TLS setting. Do not rename production VMs or
 remove their visibility merely to exercise this checklist.
+
+### Proxmox production-like validation (operator runbook)
+
+Use reviewed sources and disposable test objects only. This checklist authorizes no
+production VM/LXC mutation or deletion:
+
+1. Run read-only discovery and verify the PVE 9.1.9 baseline, node, 23 QEMU guests,
+   and LXC 101 `reverse-proxy` without exposing provider payloads or secrets.
+2. Build a plan: managed host/QEMU/LXC/NIC objects should be `NO_CHANGE`; imported
+   same-name objects must remain review/blocking candidates.
+3. Run one confirmed manual sync, rebuild the plan, and verify zero effective writes.
+4. Observe Proxmox and ESXi schedules at different intervals with independent source,
+   history, scheduler, and diagnostics state.
+5. Disable/re-enable automatic Proxmox sync; manual operations remain available and an
+   overdue source creates at most one attempt on its next tick.
+6. On disposable sources, verify same QEMU names/VMIDs remain source-isolated and a
+   same-name QEMU/LXC pair remains kind-isolated.
+7. Rename a disposable QEMU and, where available, LXC. Apply must update the same
+   NetBox object/identity; the following plan must be `NO_CHANGE`.
+8. Hide only a disposable managed guest or NIC. Verify `RETAIN_ONLY`, no delete, and
+   reuse of the same identity after restoration.
+9. Onboard a second Proxmox source with unique source_instance, address, username,
+   token references, Site/Cluster, interval, and reviewed TLS setting. Confirm each
+   resolves only its own secrets and cannot match the other's objects.
+10. Verify missing VLAN/Prefix, foreign/duplicate MAC/IP, and foreign/manual primary
+    cases fail closed or preserve only a proven same-VM primary.
+11. Hold `/run/infra-sync/apply.lock`; manual and scheduled apply must contend on the
+    same inode without provider-specific locking or automatic retry.
+12. Verify Runs and Diagnostics, then restart/reboot and repeat discovery, planning,
+    schedule, history, credentials, and shared-lock checks.
+
+A Proxmox node rename changes the current host identity and requires its own migration
+plan. Final cross-provider live Multi-Source Validation remains a later stage.
