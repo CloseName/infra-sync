@@ -12,6 +12,8 @@
   document the tested standalone ESXi and multi-source production contract.
 - Stabilize Proxmox NIC identity on provider `netX` keys, reject ambiguous VMIDs,
   isolate malformed workload/NIC records, and document the PVE 9.1.9 validation contract.
+- Validate heterogeneous source identity, credentials, targets, scheduling, history,
+  diagnostics, and dynamic onboarding; reject management-IP-only host ownership.
 
 ## [0.2.4] - 02/09/2025
 

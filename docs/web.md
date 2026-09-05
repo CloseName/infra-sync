@@ -826,3 +826,45 @@ production VM/LXC mutation or deletion:
 
 A Proxmox node rename changes the current host identity and requires its own migration
 plan. Final cross-provider live Multi-Source Validation remains a later stage.
+
+### Multi-source live validation (operator runbook)
+
+This checklist is read-only except for separately confirmed Infra Sync operations. Never
+rename, hide, create, or remove a production workload merely to exercise a test:
+
+1. Confirm `pve-infra-test` and `esxi-infra-test` appear independently with intervals 300
+   and 600 seconds, distinct target data, and no credential fields in API responses.
+2. Run Discovery and Build Plan for each source. Proxmox should show expected managed
+   `NO_CHANGE`/`RETAIN_ONLY`; ESXi may also show the previously reviewed legacy
+   `REVIEW_REQUIRED` items. Do not adopt them implicitly.
+3. Confirm a manual sync for one source at a time, then rebuild both plans. Verify the
+   other source remains unchanged and each repeated plan is idempotent.
+4. Observe fixed ticks until Proxmox runs at five-minute cadence and ESXi at ten-minute
+   cadence. Verify distinct run UUIDs, source types, terminal states, durations, latest
+   successes, scheduler states, and source-scoped diagnostic warnings.
+5. Disable one source's automatic sync. It must create no scheduled attempts while the
+   other continues; manual Discovery/Plan/Sync remains available. Re-enable it and verify
+   at most one overdue attempt on the next tick.
+6. Hold `/run/infra-sync/apply.lock`. Scheduled/manual contention in either direction must
+   fail closed with no partial writes. Reuse the already validated WEB-8 procedure.
+7. Use only naturally duplicated names or disposable test VMs to verify that identical
+   display names remain unchanged while identity/source history remains distinct.
+8. If a disposable workload is available, test rename and temporary disappearance:
+   same NetBox object ID, stable identity, `UPDATE` then `NO_CHANGE`, or `RETAIN_ONLY`
+   with no delete followed by reuse on reappearance.
+9. Restart the application services and finally reboot during an approved window. Verify
+   registry rows, schedules, secrets, history, workers, timer cadence, and diagnostics
+   persist and recover without re-registration.
+
+For a supplied second or third test hypervisor, onboard it only through Web with a unique
+source_instance, address, credentials, TLS setting, Site/Cluster, and interval. Confirm no
+SSH/environment, wrapper, Compose, or mount edit is required; refresh Web and observe the
+new source on the next scheduler tick. Validate its Discovery and Plan before enabling
+automatic sync. Same-ID and credential tests must use disposable sources—never manipulate
+production VMIDs, UUIDs, or secrets.
+
+Readiness for the pre-v1 deployment audit requires all existing sources to pass the above,
+no unresolved name/IP/MAC ownership candidate, stable shared-lock contention, independent
+history/diagnostics, and reviewed total sequential tick duration. Source deletion, cloud
+providers, vCenter, topology redesign, parallel apply, RBAC, notifications, clean deployment,
+and UI redesign remain separate work.

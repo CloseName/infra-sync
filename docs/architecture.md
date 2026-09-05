@@ -357,3 +357,64 @@ environment loader remains an explicit single-source compatibility path.
 Deferred limitations: node-rename migration, broader PVE version certification,
 cluster-topology redesign, parallel discovery, guest-agent N+1 optimization, and final
 live Multi-Source Validation.
+
+## Multi-source system contract
+
+Every managed identity is the tuple `source_type / source_instance / kind / external_id`.
+Names, IPs, MACs, cluster labels, and host display names are evidence or managed values,
+never sufficient ownership. The registry enforces globally unique source_instance, and
+ordinary update paths cannot change id, source_instance, or source_type. A new
+source_instance is a new namespace; there is no implicit ownership migration.
+
+| NetBox object | Stable identity | Cross-source behavior |
+|---|---|---|
+| Proxmox host | source + instance + `host` + node key | foreign identity/name/IP blocks or requires review |
+| Proxmox QEMU | source + instance + `qemu` + VMID | same name/VMID remains independent |
+| Proxmox LXC | source + instance + `lxc` + VMID | cannot claim QEMU or another source |
+| Proxmox NIC | workload identity + `qemu-nic`/`lxc-nic` + `netX` | foreign name/MAC/IP never adopted |
+| ESXi host | source + instance + `host` + validated UUID/MOID | same UUID/MOID remains independent |
+| ESXi VM | source + instance + `vm` + validated UUID/MOID | same name/UUID remains independent |
+| ESXi NIC | VM stable ID + provider device key | labels, MAC, and portgroup are non-identity |
+| IP/MAC | assignment ownership plus managed parent identity | an existing foreign assignment blocks before write |
+
+Target resolution is repeated from each immutable SourceConfig. Site, Cluster name/type,
+Platform, Device Role, and Device Type are never borrowed from another source. Clusters
+with the same display name remain distinct through Site and type scope. An identity found
+outside its configured target is a conflict, not a move. Same-name objects in one target
+remain unchanged and require review; Infra Sync never adds source suffixes to display names.
+
+Proxmox management-IP matching is now review evidence rather than ownership. This closes
+the last historical path that could have added a second provider identity to an existing
+Device. Existing verified v1/v2 identity is required for automatic host updates. IP/MAC
+conflicts are evaluated before writes and are never reassigned between sources. Sequential
+ordering can determine which of two simultaneously new sources first encounters an
+otherwise-free shared network value; the second then fails closed. A cross-source global
+transaction or parallel preflight is deliberately not claimed.
+
+Provider selection uses an immutable source-type dispatch table. Failure of one provider,
+object conversion, credential lookup, history finalize, or scheduled execution is recorded
+for that source and does not stop later eligible sources. A global Registry failure remains
+fatal because no source can be selected safely. A malformed registry row is isolated by the
+scheduler loader. One source's `REVIEW_REQUIRED` or `BLOCKED` plan prevents writes only for
+that single-source execution; it is not a whole-batch authorization token.
+
+Scheduler decisions, manual confirmation, plans, run UUIDs, and diagnostics are keyed by
+source_instance. Fixed ticks evaluate each current registry row; manual runs do not affect
+cadence. History start failure skips only that source, while finalize failure preserves the
+execution outcome and continues. Diagnostics may degrade the aggregate while retaining each
+healthy source's independent status, latest success, scheduled state, and warnings.
+
+Web onboarding stores one registry row plus random, collision-resistant logical secret keys.
+The broker writes into the single configured source-secret directory, already mounted read
+only into discovery/apply/runtime containers. Directory bind mounts expose later files, and
+FileSecretResolver performs no value cache, so a newly registered source or credential file
+is available without a Compose edit, wrapper edit, per-source mount, or service restart.
+Registry/source reads are also per request/tick rather than cached. Web-created sources start
+enabled with automatic sync disabled and legacy identity ownership disabled.
+
+The global `/run/infra-sync/apply.lock` remains the final writer barrier for every provider
+and trigger. Manual and scheduled execution do not have provider-specific locks. Sources are
+processed sequentially: two sources are operationally inexpensive; five accumulate provider
+and guest-agent latency; ten can exceed short source intervals. Run History durations and the
+complete tick duration must be reviewed before increasing source count. Parallel apply,
+distributed transactions, and catch-up backlogs are intentionally out of scope.
