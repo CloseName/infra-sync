@@ -2,12 +2,12 @@
 
 from dataclasses import replace
 
-from netbox_pve_sync.netbox_disappearance import (
+from netbox_sync.netbox_disappearance import (
     report_missing_managed_objects,
 )
-from netbox_pve_sync.netbox_planner import NetBoxTargetConfig
-from netbox_pve_sync.proxmox_discovery import discover_hosts
-from netbox_pve_sync.esxi_discovery import discover_hosts as discover_esxi_hosts
+from netbox_sync.netbox_planner import NetBoxTargetConfig
+from netbox_sync.proxmox_discovery import discover_hosts
+from netbox_sync.esxi_discovery import discover_hosts as discover_esxi_hosts
 
 from tests.fakes import FakeProxmox, FakeRecord
 from tests.sample_data import (

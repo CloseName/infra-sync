@@ -6,7 +6,7 @@ test('Test Connection sends credentials only in protected JSON and validates tok
   const mock = context.mock.method(globalThis, 'fetch', async (path, options) => {
     assert.equal(path, '/api/v1/sources/test-connection');
     assert.equal(options.method, 'POST');
-    assert.equal(options.headers['X-Infra-Sync-CSRF'], 'same-origin');
+    assert.equal(options.headers['X-NetBox-Sync-CSRF'], 'same-origin');
     assert.equal(JSON.parse(options.body).secret, 'fake-test-value');
     return Response.json({ status: 'success', onboarding_token: 'opaque-token-0123456789abcdef' });
   });

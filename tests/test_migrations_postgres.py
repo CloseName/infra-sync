@@ -9,7 +9,7 @@ from alembic import command
 from alembic.config import Config
 from psycopg import sql
 
-from netbox_pve_sync.source_registry import SourceRegistry
+from netbox_sync.source_registry import SourceRegistry
 from tests.sample_data import sample_source_config
 from tests.test_source_registry_postgres import _safe_test_dsn
 
@@ -17,7 +17,7 @@ from tests.test_source_registry_postgres import _safe_test_dsn
 @pytest.fixture
 def migration_database():
     dsn = _safe_test_dsn()
-    schema = 'infra_sync_test_' + uuid.uuid4().hex
+    schema = 'netbox_sync_test_' + uuid.uuid4().hex
     connect = lambda: psycopg.connect(dsn)
     engine = sa.create_engine('postgresql+psycopg://', creator=connect)
     registry = SourceRegistry(connect, schema)
@@ -25,7 +25,7 @@ def migration_database():
         yield registry, engine
     finally:
         engine.dispose()
-        assert schema.startswith('infra_sync_test_')
+        assert schema.startswith('netbox_sync_test_')
         with connect() as connection:
             connection.execute(sql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(sql.Identifier(schema)))
 
@@ -58,7 +58,8 @@ def test_existing_populated_registry_is_preserved(migration_database):
     with engine.connect() as connection:
         marker = sa.Table('alembic_version', sa.MetaData(), schema=registry.schema,
                           autoload_with=connection)
-        assert connection.execute(sa.select(marker.c.version_num)).scalar_one() == '0002_sync_run_history'
+        assert connection.execute(sa.select(marker.c.version_num)).scalar_one() == (
+            '0003_netbox_sync_naming')
         inspector = sa.inspect(connection)
         assert inspector.has_table('sync_runs', schema=registry.schema)
         assert inspector.get_foreign_keys('sync_runs', schema=registry.schema) == []

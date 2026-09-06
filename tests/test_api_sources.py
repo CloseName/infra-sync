@@ -6,12 +6,12 @@ from contextlib import AbstractContextManager
 import pytest
 from fastapi.testclient import TestClient
 
-from netbox_pve_sync.api.app import create_app
-from netbox_pve_sync.api.settings import ApiSettings
-from netbox_pve_sync.api.source_reader import PostgresSourceReader, SOURCE_COLUMNS
-from netbox_pve_sync.application.sources import SourceVisibilityService
-from netbox_pve_sync.source_registry import SourceRegistry
-from netbox_pve_sync.secret_resolver import FileSecretResolver
+from netbox_sync.api.app import create_app
+from netbox_sync.api.settings import ApiSettings
+from netbox_sync.api.source_reader import PostgresSourceReader, SOURCE_COLUMNS
+from netbox_sync.application.sources import SourceVisibilityService
+from netbox_sync.source_registry import SourceRegistry
+from netbox_sync.secret_resolver import FileSecretResolver
 
 
 SECRET = 'DO_NOT_EXPOSE_CREDENTIAL_SENTINEL'
@@ -61,7 +61,7 @@ class FakeReadConnection(AbstractContextManager):
 
 
 def source_client(connection=None, *, settings=None, connector=None):
-    settings = settings or ApiSettings(registry_dsn=SECRET, registry_schema='infra_sync_test')
+    settings = settings or ApiSettings(registry_dsn=SECRET, registry_schema='netbox_sync_test')
     reader = PostgresSourceReader(settings, connector=connector or (lambda *_args, **_kw: connection))
     return TestClient(create_app(settings, source_service=SourceVisibilityService(reader)))
 

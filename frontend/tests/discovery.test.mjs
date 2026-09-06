@@ -14,7 +14,7 @@ test('discovery client sends protected POST and preserves visible classification
   const [path, options] = mock.mock.calls[0].arguments;
   assert.equal(path, '/api/v1/sources/pve-test/discovery');
   assert.equal(options.method, 'POST');
-  assert.equal(options.headers['X-Infra-Sync-CSRF'], 'same-origin');
+  assert.equal(options.headers['X-NetBox-Sync-CSRF'], 'same-origin');
 });
 
 test('discovery client rejects malformed result and reports stable errors', async (context) => {

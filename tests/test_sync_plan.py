@@ -2,9 +2,9 @@
 
 from dataclasses import replace
 
-from netbox_pve_sync.application.discovery_review import (DiscoveryReview, ReviewClassification,
+from netbox_sync.application.discovery_review import (DiscoveryReview, ReviewClassification,
                                                             ReviewItem)
-from netbox_pve_sync.application.sync_plan import (SyncAction, plan_from_mutations, plan_from_review,
+from netbox_sync.application.sync_plan import (SyncAction, plan_from_mutations, plan_from_review,
                                                     safe_source_fingerprint)
 from tests.sample_data import sample_source_config
 

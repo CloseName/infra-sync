@@ -28,31 +28,31 @@ class ApiSettings:
     def from_environment(cls, environ=None):
         """Read only required configuration; never log or serialize the environment."""
         env = os.environ if environ is None else environ
-        stale_seconds = stale_threshold(env.get('INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS', '7200'))
+        stale_seconds = stale_threshold(env.get('NETBOX_SYNC_DIAGNOSTICS_STALE_SECONDS', '7200'))
         return cls(
-            registry_dsn=env.get('INFRA_SYNC_REGISTRY_DSN', '').strip(),
-            registry_schema=env.get('INFRA_SYNC_REGISTRY_SCHEMA', '').strip(),
+            registry_dsn=env.get('NETBOX_SYNC_REGISTRY_DSN', '').strip(),
+            registry_schema=env.get('NETBOX_SYNC_REGISTRY_SCHEMA', '').strip(),
             netbox_configured=bool(
                 env.get('NB_API_URL', '').strip()
                 and (env.get('NB_API_TOKEN', '').strip() or env.get('NB_API_TOKEN_FILE', '').strip())
             ),
-            web_dist=env.get('INFRA_SYNC_WEB_DIST', '').strip(),
-            registration_dsn=env.get('INFRA_SYNC_REGISTRATION_DSN', '').strip(),
-            broker_socket=env.get('INFRA_SYNC_BROKER_SOCKET', '').strip(),
-            discovery_socket=env.get('INFRA_SYNC_DISCOVERY_SOCKET', '').strip(),
-            apply_socket=env.get('INFRA_SYNC_APPLY_SOCKET', '').strip(),
-            schedule_socket=env.get('INFRA_SYNC_SCHEDULE_SOCKET', '').strip(),
+            web_dist=env.get('NETBOX_SYNC_WEB_DIST', '').strip(),
+            registration_dsn=env.get('NETBOX_SYNC_REGISTRATION_DSN', '').strip(),
+            broker_socket=env.get('NETBOX_SYNC_BROKER_SOCKET', '').strip(),
+            discovery_socket=env.get('NETBOX_SYNC_DISCOVERY_SOCKET', '').strip(),
+            apply_socket=env.get('NETBOX_SYNC_APPLY_SOCKET', '').strip(),
+            schedule_socket=env.get('NETBOX_SYNC_SCHEDULE_SOCKET', '').strip(),
             diagnostics_stale_seconds=stale_seconds,
             allowed_write_hosts=tuple(value.strip() for value in env.get(
-                'INFRA_SYNC_WRITE_HOSTS', '127.0.0.1:8000,localhost:8000',
+                'NETBOX_SYNC_WRITE_HOSTS', '127.0.0.1:8000,localhost:8000',
             ).split(',') if value.strip()),
             egress_policy=EgressPolicy(**{
                 field_name: tuple(item.strip() for item in env.get(variable, '').split(',') if item.strip())
                 for field_name, variable in (
-                    ('allowed_cidrs', 'INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS'),
-                    ('denied_cidrs', 'INFRA_SYNC_ONBOARDING_DENIED_CIDRS'),
-                    ('allowed_hosts', 'INFRA_SYNC_ONBOARDING_ALLOWED_HOSTS'),
-                    ('allowed_suffixes', 'INFRA_SYNC_ONBOARDING_ALLOWED_SUFFIXES'),
+                    ('allowed_cidrs', 'NETBOX_SYNC_ONBOARDING_ALLOWED_CIDRS'),
+                    ('denied_cidrs', 'NETBOX_SYNC_ONBOARDING_DENIED_CIDRS'),
+                    ('allowed_hosts', 'NETBOX_SYNC_ONBOARDING_ALLOWED_HOSTS'),
+                    ('allowed_suffixes', 'NETBOX_SYNC_ONBOARDING_ALLOWED_SUFFIXES'),
                 )
             }),
         )
@@ -61,6 +61,6 @@ class ApiSettings:
 def application_version():
     """Distribution version, with a deterministic fallback for uninstalled checkouts."""
     try:
-        return version('netbox-pve-sync')
+        return version('netbox-sync')
     except PackageNotFoundError:
         return 'development'

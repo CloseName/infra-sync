@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def test_production_sync_contains_no_delete_calls():
-    package = Path(__file__).parents[1] / 'netbox_pve_sync'
+    package = Path(__file__).parents[1] / 'netbox_sync'
     delete_calls = []
 
     for path in package.glob('*.py'):

@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 
 import pytest
 
-from netbox_pve_sync.source_bootstrap import (
+from netbox_sync.source_bootstrap import (
     SourceBootstrapError,
     bootstrap_legacy_source,
 )

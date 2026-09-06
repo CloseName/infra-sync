@@ -21,7 +21,7 @@ def run(connection, schema):
         connection.execute(sa.text("SET LOCAL lock_timeout = '5s'"))
         connection.execute(
             sa.text('SELECT pg_advisory_xact_lock(hashtext(:key))'),
-            {'key': 'infra-sync-migrations:' + schema},
+            {'key': 'netbox-sync-migrations:' + schema},
         )
         connection.execute(sa.schema.CreateSchema(schema, if_not_exists=True))
         context.configure(
@@ -38,14 +38,14 @@ def main():
     if context.is_offline_mode():
         raise ValueError('Offline migrations are unsupported: legacy validation requires PostgreSQL')
     config = context.config
-    schema = config.attributes.get('schema') or os.environ.get('INFRA_SYNC_REGISTRY_SCHEMA')
+    schema = config.attributes.get('schema') or os.environ.get('NETBOX_SYNC_REGISTRY_SCHEMA')
     supplied = config.attributes.get('connection')
     if supplied is not None:
         run(supplied, schema)
         return
-    dsn = os.environ.get('INFRA_SYNC_REGISTRY_DSN')
+    dsn = os.environ.get('NETBOX_SYNC_REGISTRY_DSN')
     if not dsn:
-        raise ValueError('INFRA_SYNC_REGISTRY_DSN is required')
+        raise ValueError('NETBOX_SYNC_REGISTRY_DSN is required')
     engine = sa.create_engine(
         'postgresql+psycopg://',
         creator=lambda: psycopg.connect(dsn),

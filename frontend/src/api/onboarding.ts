@@ -17,7 +17,7 @@ async function post(path: string, payload: ConnectionInput | RegistrationInput |
   let response: Response;
   try {
     response = await fetch(path, { method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json', 'X-Infra-Sync-CSRF': 'same-origin' },
+      headers: { 'Content-Type': 'application/json', 'X-NetBox-Sync-CSRF': 'same-origin' },
       body: JSON.stringify(payload), signal: AbortSignal.timeout(20000) });
   } catch { throw new Error('Request failed or timed out. Registration outcome may require operator review.'); }
   if (!response.ok) {

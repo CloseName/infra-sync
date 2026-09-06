@@ -15,7 +15,7 @@ const item = (value: unknown): value is DiscoveryItem => record(value)
 
 export async function runDiscovery(instance: string, signal: AbortSignal): Promise<DiscoveryResult> {
   let response: Response;
-  try { response = await fetch(`/api/v1/sources/${encodeURIComponent(instance)}/discovery`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Infra-Sync-CSRF': 'same-origin' }, credentials: 'same-origin', body: '{}', signal, cache: 'no-store' }); }
+  try { response = await fetch(`/api/v1/sources/${encodeURIComponent(instance)}/discovery`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-NetBox-Sync-CSRF': 'same-origin' }, credentials: 'same-origin', body: '{}', signal, cache: 'no-store' }); }
   catch { throw new Error('Discovery worker is unavailable.'); }
   if (!response.ok) {
     let code = '';

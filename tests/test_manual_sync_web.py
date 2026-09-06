@@ -5,12 +5,12 @@ import logging
 
 from fastapi.testclient import TestClient
 
-from netbox_pve_sync.api.app import create_app
-from netbox_pve_sync.api.settings import ApiSettings
+from netbox_sync.api.app import create_app
+from netbox_sync.api.settings import ApiSettings
 
 
 HEADERS = {'host': 'localhost:8000', 'origin': 'http://localhost:8000',
-           'x-infra-sync-csrf': 'same-origin', 'content-type': 'application/json'}
+           'x-netbox-sync-csrf': 'same-origin', 'content-type': 'application/json'}
 
 
 class Discovery:
@@ -43,7 +43,7 @@ def test_plan_prepare_apply_flow_and_payload_boundaries(caplog):
     worker = Apply()
     api = TestClient(create_app(ApiSettings(allowed_write_hosts=('localhost:8000',)),
                                 discovery_client=Discovery(), apply_client=worker))
-    with caplog.at_level(logging.INFO, logger='infra_sync.api'):
+    with caplog.at_level(logging.INFO, logger='netbox_sync.api'):
         planned = api.post('/api/v1/sources/pve-test/sync-plan', headers=HEADERS, json={})
         assert planned.status_code == 200
         assert 'source_id' not in planned.json()
@@ -57,7 +57,7 @@ def test_plan_prepare_apply_flow_and_payload_boundaries(caplog):
     assert worker.calls == [('prepare', 'pve-test', 'a' * 64),
                             ('apply', 'pve-test', 'b' * 64)]
     records = [json.loads(record.message) for record in caplog.records
-               if record.name == 'infra_sync.api']
+               if record.name == 'netbox_sync.api']
     assert records[-1]['run_id'] == applied.json()['run_id']
 
 

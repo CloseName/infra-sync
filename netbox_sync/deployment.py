@@ -20,16 +20,19 @@ from psycopg.conninfo import make_conninfo
 from .source_registry import SCHEMA_NAME_PATTERN
 
 
+DATABASE_NAME = 'netbox_sync'
+SCHEMA_NAME = 'netbox_sync'
+BOOTSTRAP_ROLE = 'netbox_sync_bootstrap'
+LEGACY_DATABASE_NAME = 'infra_sync'
+LEGACY_SCHEMA_NAME = 'infra_sync'
+LEGACY_BOOTSTRAP_ROLE = 'infra_sync_bootstrap'
 DATABASE_ROLES = {
-    'owner': 'infra_sync_owner',
-    'web_reader': 'infra_sync_web_reader',
-    'registration_writer': 'infra_sync_registration_writer',
-    'discovery_reader': 'infra_sync_discovery_reader',
-    'apply_registry_reader': 'infra_sync_apply_registry_reader',
-    'registry_reader': 'infra_sync_registry_reader',
-    'run_writer': 'infra_sync_run_writer',
-    'schedule_writer': 'infra_sync_schedule_writer',
+    key: f'netbox_sync_{key}' for key in (
+        'owner', 'web_reader', 'registration_writer', 'discovery_reader',
+        'apply_registry_reader', 'registry_reader', 'run_writer', 'schedule_writer')
 }
+LEGACY_DATABASE_ROLES = {key: f'infra_sync_{key}' for key in DATABASE_ROLES}
+NAMING_CONFIRMATION = 'RENAME_INFRA_SYNC_DATABASE_TO_NETBOX_SYNC'
 PASSWORD_FILES = {
     'bootstrap': 'postgres_bootstrap_password',
     **{key: key + '_password' for key in DATABASE_ROLES},
@@ -76,7 +79,7 @@ def _required_setting(name, environ=None):
 def read_password(key, environ=None):
     """Read one bounded single-line password from the dedicated directory."""
     environ = environ or os.environ
-    root = Path(_required_setting('INFRA_SYNC_DB_PASSWORD_DIR', environ))
+    root = Path(_required_setting('NETBOX_SYNC_DB_PASSWORD_DIR', environ))
     filename = PASSWORD_FILES[key]
     path = root / filename
     try:
@@ -93,12 +96,12 @@ def read_password(key, environ=None):
 def connection_info(role_key, environ=None):
     """Build libpq configuration without putting credentials in argv or logs."""
     environ = environ or os.environ
-    role = ('infra_sync_bootstrap' if role_key == 'bootstrap'
+    role = (BOOTSTRAP_ROLE if role_key == 'bootstrap'
             else DATABASE_ROLES[role_key])
     return make_conninfo(
-        host=_required_setting('INFRA_SYNC_DB_HOST', environ),
-        port=environ.get('INFRA_SYNC_DB_PORT', '5432'),
-        dbname=environ.get('INFRA_SYNC_DB_NAME', 'infra_sync'),
+        host=_required_setting('NETBOX_SYNC_DB_HOST', environ),
+        port=environ.get('NETBOX_SYNC_DB_PORT', '5432'),
+        dbname=environ.get('NETBOX_SYNC_DB_NAME', DATABASE_NAME),
         user=role,
         password=read_password(role_key, environ),
         connect_timeout='5',
@@ -121,13 +124,102 @@ def _rotate_bootstrap_password(cursor, password):
     """Rotate the privileged bootstrap login without changing its attributes."""
     cursor.execute(sql.SQL(
         'ALTER ROLE {} WITH LOGIN PASSWORD {}'
-    ).format(sql.Identifier('infra_sync_bootstrap'), sql.Literal(password)))
+    ).format(sql.Identifier(BOOTSTRAP_ROLE), sql.Literal(password)))
+
+
+def _legacy_connection_info(database, environ):
+    return make_conninfo(
+        host=_required_setting('NETBOX_SYNC_DB_HOST', environ),
+        port=environ.get('NETBOX_SYNC_DB_PORT', '5432'), dbname=database,
+        user=LEGACY_BOOTSTRAP_ROLE, password=read_password('bootstrap', environ),
+        connect_timeout='5')
+
+
+def _validate_legacy_schema(cursor):
+    cursor.execute(
+        'SELECT nspname FROM pg_namespace WHERE nspname IN (%s, %s)',
+        (LEGACY_SCHEMA_NAME, SCHEMA_NAME))
+    if {row[0] for row in cursor.fetchall()} != {LEGACY_SCHEMA_NAME}:
+        raise DeploymentError('legacy and target schema naming conflict')
+    cursor.execute(
+        'SELECT tablename FROM pg_tables WHERE schemaname=%s ORDER BY tablename',
+        (LEGACY_SCHEMA_NAME,))
+    tables = tuple(row[0] for row in cursor.fetchall())
+    if tables not in {
+            ('alembic_version', 'schema_meta', 'sources'),
+            ('alembic_version', 'schema_meta', 'sources', 'sync_runs')}:
+        raise DeploymentError('legacy schema is not a recognized Foundation schema')
+    cursor.execute(sql.SQL('SELECT version_num FROM {}.alembic_version').format(
+        sql.Identifier(LEGACY_SCHEMA_NAME)))
+    if cursor.fetchone()[0] not in {'0001_registry_baseline', '0002_sync_run_history'}:
+        raise DeploymentError('legacy Alembic state is unsupported')
+
+
+def migrate_database_naming(environ=None):
+    """Rename preflighted state, preserving rows and legacy roles for rollback."""
+    environ = environ or os.environ
+    if environ.get('NETBOX_SYNC_NAMING_CONFIRM') != NAMING_CONFIRMATION:
+        raise DeploymentError('explicit database naming confirmation is required')
+    passwords = {key: read_password(key, environ)
+                 for key in ('bootstrap', *DATABASE_ROLES)}
+    with psycopg.connect(_legacy_connection_info(LEGACY_DATABASE_NAME, environ)) as connection:
+        with connection.cursor() as cursor:
+            _validate_legacy_schema(cursor)
+
+    with psycopg.connect(
+            _legacy_connection_info('postgres', environ), autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT datname FROM pg_database WHERE datname IN (%s, %s)',
+                (LEGACY_DATABASE_NAME, DATABASE_NAME))
+            if {row[0] for row in cursor.fetchall()} != {LEGACY_DATABASE_NAME}:
+                raise DeploymentError('legacy and target database naming conflict')
+            legacy_roles = (LEGACY_BOOTSTRAP_ROLE, *LEGACY_DATABASE_ROLES.values())
+            target_roles = (BOOTSTRAP_ROLE, *DATABASE_ROLES.values())
+            cursor.execute(
+                'SELECT rolname FROM pg_roles WHERE rolname=ANY(%s)',
+                (list((*legacy_roles, *target_roles)),))
+            if {row[0] for row in cursor.fetchall()} != set(legacy_roles):
+                raise DeploymentError('legacy and target role naming conflict')
+            cursor.execute(
+                'SELECT count(*) FROM pg_stat_activity '
+                'WHERE datname=%s AND pid<>pg_backend_pid()',
+                (LEGACY_DATABASE_NAME,))
+            if cursor.fetchone()[0]:
+                raise DeploymentError('legacy database still has active connections')
+            for key in DATABASE_ROLES:
+                _execute_role(cursor, DATABASE_ROLES[key], passwords[key])
+            cursor.execute(sql.SQL('CREATE ROLE {} LOGIN SUPERUSER PASSWORD {}').format(
+                sql.Identifier(BOOTSTRAP_ROLE), sql.Literal(passwords['bootstrap'])))
+            cursor.execute(sql.SQL('ALTER DATABASE {} RENAME TO {}').format(
+                sql.Identifier(LEGACY_DATABASE_NAME), sql.Identifier(DATABASE_NAME)))
+            cursor.execute(sql.SQL('ALTER DATABASE {} OWNER TO {}').format(
+                sql.Identifier(DATABASE_NAME), sql.Identifier(DATABASE_ROLES['owner'])))
+            cursor.execute(sql.SQL('GRANT CONNECT ON DATABASE {} TO {}').format(
+                sql.Identifier(DATABASE_NAME), sql.Identifier(BOOTSTRAP_ROLE)))
+
+    with psycopg.connect(connection_info('bootstrap', environ), autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(sql.SQL('ALTER SCHEMA {} RENAME TO {}').format(
+                sql.Identifier(LEGACY_SCHEMA_NAME), sql.Identifier(SCHEMA_NAME)))
+            cursor.execute(sql.SQL('ALTER SCHEMA {} OWNER TO {}').format(
+                sql.Identifier(SCHEMA_NAME), sql.Identifier(DATABASE_ROLES['owner'])))
+            cursor.execute(
+                "SELECT c.relname, c.relkind FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid=c.relnamespace "
+                "WHERE n.nspname=%s AND c.relkind IN ('r', 'S') ORDER BY c.relname",
+                (SCHEMA_NAME,))
+            for name, kind in cursor.fetchall():
+                object_type = sql.SQL('TABLE') if kind == 'r' else sql.SQL('SEQUENCE')
+                cursor.execute(sql.SQL('ALTER {} {}.{} OWNER TO {}').format(
+                    object_type, sql.Identifier(SCHEMA_NAME), sql.Identifier(name),
+                    sql.Identifier(DATABASE_ROLES['owner'])))
 
 
 def bootstrap_roles(environ=None):
     """Create/rotate fixed runtime roles and establish private DB ownership."""
     environ = environ or os.environ
-    database = environ.get('INFRA_SYNC_DB_NAME', 'infra_sync')
+    database = environ.get('NETBOX_SYNC_DB_NAME', DATABASE_NAME)
     with psycopg.connect(connection_info('bootstrap', environ), autocommit=True) as connection:
         with connection.cursor() as cursor:
             for key, role in DATABASE_ROLES.items():
@@ -157,7 +249,7 @@ def restore_role_passwords(environ=None):
     the bootstrap role last keeps the provisioning connection recoverable.
     """
     environ = environ or os.environ
-    bootstrap_next = Path(_required_setting('INFRA_SYNC_DB_PASSWORD_DIR', environ)) / \
+    bootstrap_next = Path(_required_setting('NETBOX_SYNC_DB_PASSWORD_DIR', environ)) / \
         RESTORE_BOOTSTRAP_FILE
     try:
         if (bootstrap_next.is_symlink() or not bootstrap_next.is_file()
@@ -178,9 +270,9 @@ def restore_role_passwords(environ=None):
 def validate_migration_ownership(environ=None):
     """Fail before Alembic if an existing registry is owned by another role."""
     environ = environ or os.environ
-    schema = environ.get('INFRA_SYNC_REGISTRY_SCHEMA', 'infra_sync')
+    schema = environ.get('NETBOX_SYNC_REGISTRY_SCHEMA', SCHEMA_NAME)
     if not SCHEMA_NAME_PATTERN.fullmatch(schema):
-        raise DeploymentError('INFRA_SYNC_REGISTRY_SCHEMA is invalid')
+        raise DeploymentError('NETBOX_SYNC_REGISTRY_SCHEMA is invalid')
     expected = DATABASE_ROLES['owner']
     with psycopg.connect(connection_info('owner', environ)) as connection:
         with connection.cursor() as cursor:
@@ -214,9 +306,9 @@ def validate_migration_ownership(environ=None):
 def migrate(environ=None):
     """Run the reviewed Alembic chain as owner, using an injected connection."""
     environ = environ or os.environ
-    schema = environ.get('INFRA_SYNC_REGISTRY_SCHEMA', 'infra_sync')
+    schema = environ.get('NETBOX_SYNC_REGISTRY_SCHEMA', SCHEMA_NAME)
     if not SCHEMA_NAME_PATTERN.fullmatch(schema):
-        raise DeploymentError('INFRA_SYNC_REGISTRY_SCHEMA is invalid')
+        raise DeploymentError('NETBOX_SYNC_REGISTRY_SCHEMA is invalid')
     validate_migration_ownership(environ)
     engine = sa.create_engine(
         'postgresql+psycopg://',
@@ -246,9 +338,9 @@ def _grant_columns(cursor, privilege, table, columns, role):
 def apply_grants(environ=None):
     """Reapply the complete least-privilege matrix after every migration."""
     environ = environ or os.environ
-    schema = environ.get('INFRA_SYNC_REGISTRY_SCHEMA', 'infra_sync')
+    schema = environ.get('NETBOX_SYNC_REGISTRY_SCHEMA', SCHEMA_NAME)
     if not SCHEMA_NAME_PATTERN.fullmatch(schema):
-        raise DeploymentError('INFRA_SYNC_REGISTRY_SCHEMA is invalid')
+        raise DeploymentError('NETBOX_SYNC_REGISTRY_SCHEMA is invalid')
     owner = DATABASE_ROLES['owner']
     sources = sql.Identifier(schema, 'sources')
     meta = sql.Identifier(schema, 'schema_meta')
@@ -310,15 +402,17 @@ def apply_grants(environ=None):
 
 def main(argv=None):
     """Run one explicit provisioning operation with sanitized failures."""
-    parser = argparse.ArgumentParser(description='Infra Sync deployment database tool')
+    parser = argparse.ArgumentParser(description='NetBox Sync deployment database tool')
     parser.add_argument('operation', choices=(
-        'bootstrap-roles', 'migrate', 'apply-grants', 'restore-role-passwords'))
+        'bootstrap-roles', 'migrate', 'apply-grants', 'restore-role-passwords',
+        'migrate-naming'))
     args = parser.parse_args(argv)
     actions = {
         'bootstrap-roles': bootstrap_roles,
         'migrate': migrate,
         'apply-grants': apply_grants,
         'restore-role-passwords': restore_role_passwords,
+        'migrate-naming': migrate_database_naming,
     }
     try:
         actions[args.operation]()

@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from netbox_pve_sync.api.onboarding_adapters import BrokerSecretStore
+from netbox_sync.api.onboarding_adapters import BrokerSecretStore
 
 pytestmark = pytest.mark.skipif(not hasattr(os, 'geteuid') or getattr(os, 'geteuid', lambda: -1)() != 0,
                                 reason='Requires disposable Linux root container')
@@ -17,7 +17,7 @@ pytestmark = pytest.mark.skipif(not hasattr(os, 'geteuid') or getattr(os, 'geteu
 
 def start_broker(root, socket_path, uid=0):
     process = subprocess.Popen([
-        sys.executable, '-m', 'netbox_pve_sync.secret_broker', '--socket', str(socket_path),
+        sys.executable, '-m', 'netbox_sync.secret_broker', '--socket', str(socket_path),
         '--secret-root', str(root), '--allowed-uid', str(uid),
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _attempt in range(100):

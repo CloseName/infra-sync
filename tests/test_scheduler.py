@@ -7,10 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from netbox_pve_sync.application.scheduling import SchedulerState, evaluate_schedule
-from netbox_pve_sync.scheduler_runtime import run_scheduler_tick, scheduler_summary_lines
-from netbox_pve_sync.source_registry import SourceLoadResult
-from netbox_pve_sync.source_bootstrap import load_scheduler_source_configs
+from netbox_sync.application.scheduling import SchedulerState, evaluate_schedule
+from netbox_sync.scheduler_runtime import run_scheduler_tick, scheduler_summary_lines
+from netbox_sync.source_registry import SourceLoadResult
+from netbox_sync.source_bootstrap import load_scheduler_source_configs
 from tests.sample_data import sample_source_config
 
 NOW = datetime(2026, 9, 5, 12, tzinfo=timezone.utc)
@@ -137,12 +137,12 @@ def test_inventory_tick_evaluates_without_provider_or_history_writes():
 
 
 def test_tracked_fixed_tick_is_final_and_shared_lock_is_unchanged():
-    timer = Path('deploy/systemd/infra-netbox-sync.timer').read_text(encoding='utf-8')
-    service = Path('deploy/systemd/infra-netbox-sync.service').read_text(encoding='utf-8')
+    timer = Path('deploy/systemd/netbox-sync.timer').read_text(encoding='utf-8')
+    service = Path('deploy/systemd/netbox-sync.service').read_text(encoding='utf-8')
     wrapper = Path('scripts/run-scheduled-sync.sh').read_text(encoding='utf-8')
     assert 'OnUnitActiveSec=60s' in timer
     assert 'AccuracySec=5s' in timer
-    assert '/usr/bin/flock -n /run/infra-sync/apply.lock' in wrapper
+    assert '/usr/bin/flock -n /run/netbox-sync/apply.lock' in wrapper
     assert '/usr/bin/flock' not in service
 
 
@@ -154,8 +154,8 @@ def test_scheduler_loader_includes_disabled_waiting_and_runnable_sources():
     registry = SimpleNamespace(list_sources_isolated=lambda: tuple(
         SourceLoadResult(record, True) for record in records))
     loaded = load_scheduler_source_configs({
-        'SOURCE_CONFIG_MODE': 'registry-all', 'INFRA_SYNC_REGISTRY_DSN': 'fixture',
-        'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync'},
+        'SOURCE_CONFIG_MODE': 'registry-all', 'NETBOX_SYNC_REGISTRY_DSN': 'fixture',
+        'NETBOX_SYNC_REGISTRY_SCHEMA': 'netbox_sync'},
         registry_factory=lambda _dsn, _schema: registry)
     assert tuple(item.config for item in loaded) == configs
 
@@ -168,7 +168,7 @@ def test_evaluation_failure_is_isolated_and_due_source_executes(monkeypatch):
             raise RuntimeError('RAW SECRET EVALUATION DETAIL')
         return real_evaluate(config, *args)
 
-    monkeypatch.setattr('netbox_pve_sync.scheduler_runtime.evaluate_schedule', isolated)
+    monkeypatch.setattr('netbox_sync.scheduler_runtime.evaluate_schedule', isolated)
     repo, seen = Repository(), []
     tick = run_scheduler_tick((source('pve-a'), source('pve-b')),
                               lambda config: seen.append(config.source_instance), repo,
@@ -185,8 +185,8 @@ def test_malformed_conversion_is_isolated_before_due_execution():
     registry = SimpleNamespace(list_sources_isolated=lambda: (
         SourceLoadResult(None, False), SourceLoadResult(valid, True)))
     loaded = load_scheduler_source_configs({
-        'SOURCE_CONFIG_MODE': 'registry-all', 'INFRA_SYNC_REGISTRY_DSN': 'fixture',
-        'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync'},
+        'SOURCE_CONFIG_MODE': 'registry-all', 'NETBOX_SYNC_REGISTRY_DSN': 'fixture',
+        'NETBOX_SYNC_REGISTRY_SCHEMA': 'netbox_sync'},
         registry_factory=lambda _dsn, _schema: registry)
     repo, seen = Repository(), []
     tick = run_scheduler_tick(loaded, lambda config: seen.append(config.source_instance),
@@ -203,7 +203,7 @@ def test_evaluation_failure_with_waiting_source_still_has_summary(monkeypatch):
             raise RuntimeError('private detail')
         return real_evaluate(config, *args)
 
-    monkeypatch.setattr('netbox_pve_sync.scheduler_runtime.evaluate_schedule', isolated)
+    monkeypatch.setattr('netbox_sync.scheduler_runtime.evaluate_schedule', isolated)
     repo = Repository((run('pve-b', 10),))
     tick = run_scheduler_tick((source('pve-a'), source('pve-b')),
                               lambda _config: pytest.fail('must not execute'), repo,
@@ -220,7 +220,7 @@ def test_one_evaluation_failure_does_not_block_two_due_sources(monkeypatch):
             raise RuntimeError('private detail')
         return real_evaluate(config, *args)
 
-    monkeypatch.setattr('netbox_pve_sync.scheduler_runtime.evaluate_schedule', isolated)
+    monkeypatch.setattr('netbox_sync.scheduler_runtime.evaluate_schedule', isolated)
     repo, seen = Repository(), []
     tick = run_scheduler_tick((source('pve-a'), source('pve-b'), source('pve-c')),
                               lambda config: seen.append(config.source_instance), repo,

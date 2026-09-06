@@ -3,15 +3,15 @@
 from copy import deepcopy
 from dataclasses import replace
 
-from netbox_pve_sync.esxi_discovery import discover_hosts
-from netbox_pve_sync.esxi_migration import (
+from netbox_sync.esxi_discovery import discover_hosts
+from netbox_sync.esxi_migration import (
     InterfaceMigrationClassification,
     ObjectMigrationClassification,
     build_esxi_migration_plan,
 )
-from netbox_pve_sync.netbox_metadata import build_device_custom_fields
-from netbox_pve_sync.netbox_vm_metadata import build_vm_custom_fields
-from netbox_pve_sync.source_config import SecretReference, SourceCredentials
+from netbox_sync.netbox_metadata import build_device_custom_fields
+from netbox_sync.netbox_vm_metadata import build_vm_custom_fields
+from netbox_sync.source_config import SecretReference, SourceCredentials
 
 from tests.fakes import FakeRecord
 from tests.fakes.esxi import fake_esxi_service

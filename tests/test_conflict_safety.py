@@ -4,17 +4,17 @@ from copy import deepcopy
 
 import pytest
 
-from netbox_pve_sync.netbox_vm_apply import (
+from netbox_sync.netbox_vm_apply import (
     VMApplyError,
     apply_virtual_machines,
 )
-from netbox_pve_sync.netbox_apply import HostApplyError, _resolve_cluster, _resolve_device
-from netbox_pve_sync.netbox_planner import _find_device_match
-from netbox_pve_sync.netbox_vm_network_apply import (
+from netbox_sync.netbox_apply import HostApplyError, _resolve_cluster, _resolve_device
+from netbox_sync.netbox_planner import _find_device_match
+from netbox_sync.netbox_vm_network_apply import (
     VMNetworkApplyError,
     apply_vm_networks,
 )
-from netbox_pve_sync.proxmox_discovery import discover_hosts
+from netbox_sync.proxmox_discovery import discover_hosts
 
 from tests.fakes import FakeProxmox, FakeRecord
 from tests.netbox_scenarios import add_target, vm_identity

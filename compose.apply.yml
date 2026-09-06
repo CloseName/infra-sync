@@ -1,8 +1,8 @@
 services:
-  infra-netbox-sync:
+  netbox-sync:
     environment:
       NB_APPLY_API_TOKEN_FILE: /run/secrets/netbox_apply_api_token
-      INFRA_SYNC_RUN_WRITER_DSN: ${INFRA_SYNC_RUN_WRITER_DSN:-}
+      NETBOX_SYNC_RUN_WRITER_DSN: ${NETBOX_SYNC_RUN_WRITER_DSN:-}
 
     volumes:
       - ../secrets/netbox_apply_api_token:/run/secrets/netbox_apply_api_token:ro

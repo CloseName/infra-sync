@@ -1,7 +1,7 @@
 # pylint: disable=fixme,too-many-branches
 
 """
-Infra Sync: Synchronize Proxmox Virtual Environment (PVE) information to a NetBox instance
+NetBox Sync: Synchronize Proxmox Virtual Environment (PVE) information to a NetBox instance
 """
 
 import os
@@ -1128,7 +1128,7 @@ def _source_dispatch(sync_mode):
 
 
 def main():
-    """Infra Sync main entrypoint."""
+    """NetBox Sync main entrypoint."""
 
     sync_mode = _get_sync_mode()
     print(f'SYNC_MODE={sync_mode}')
@@ -1141,14 +1141,14 @@ def main():
         configs = load_scheduler_source_configs()
         dispatch = _source_dispatch(sync_mode)
         history = postgres_run_repository(
-            (os.environ.get('INFRA_SYNC_RUN_WRITER_DSN', '') if sync_mode == 'apply'
-             else os.environ.get('INFRA_SYNC_REGISTRY_DSN', '')),
-            os.environ['INFRA_SYNC_REGISTRY_SCHEMA'],
+            (os.environ.get('NETBOX_SYNC_RUN_WRITER_DSN', '') if sync_mode == 'apply'
+             else os.environ.get('NETBOX_SYNC_REGISTRY_DSN', '')),
+            os.environ['NETBOX_SYNC_REGISTRY_SCHEMA'],
         )
         tick = run_scheduler_tick(
             configs, dispatch.execute, history,
             stale_seconds=stale_threshold(
-                os.environ.get('INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS', '7200')),
+                os.environ.get('NETBOX_SYNC_DIAGNOSTICS_STALE_SECONDS', '7200')),
             execute_due=sync_mode == 'apply',
         )
         result = tick.execution

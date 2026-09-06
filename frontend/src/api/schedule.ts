@@ -33,6 +33,6 @@ export async function fetchSchedule(instance: string, signal: AbortSignal) {
   return parse(response, instance);
 }
 export async function updateSchedule(instance: string, update: ScheduleUpdate, signal: AbortSignal) {
-  let response: Response; try { response = await fetch(`/api/v1/sources/${encodeURIComponent(instance)}/schedule`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Infra-Sync-CSRF': 'same-origin' }, credentials: 'same-origin', cache: 'no-store', signal, body: JSON.stringify(update) }); } catch { throw new Error('Scheduling request failed.'); }
+  let response: Response; try { response = await fetch(`/api/v1/sources/${encodeURIComponent(instance)}/schedule`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-NetBox-Sync-CSRF': 'same-origin' }, credentials: 'same-origin', cache: 'no-store', signal, body: JSON.stringify(update) }); } catch { throw new Error('Scheduling request failed.'); }
   return parse(response, instance);
 }

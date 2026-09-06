@@ -2,7 +2,7 @@
 
 import pytest
 
-from netbox_pve_sync.run_history import (ActionCounts, RunStatus, postgres_run_repository,
+from netbox_sync.run_history import (ActionCounts, RunStatus, postgres_run_repository,
                                          safe_error_code, safe_error_message, terminal_status)
 
 
@@ -25,4 +25,4 @@ def test_stable_errors_map_to_closed_status_and_safe_text():
 
 def test_apply_runtime_requires_run_writer_configuration():
     with pytest.raises(RuntimeError, match='history writer configuration'):
-        postgres_run_repository('', 'infra_sync')
+        postgres_run_repository('', 'netbox_sync')

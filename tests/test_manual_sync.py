@@ -4,11 +4,11 @@ from dataclasses import replace
 
 import pytest
 
-from netbox_pve_sync.application.confirmation import ConfirmationStore
-from netbox_pve_sync.application.discovery_review import (DiscoveryReview, ReviewClassification,
+from netbox_sync.application.confirmation import ConfirmationStore
+from netbox_sync.application.discovery_review import (DiscoveryReview, ReviewClassification,
                                                             ReviewItem)
-from netbox_pve_sync.application.manual_sync import ManualSyncError, ManualSyncService
-from netbox_pve_sync.application.sync_plan import plan_from_review
+from netbox_sync.application.manual_sync import ManualSyncError, ManualSyncService
+from netbox_sync.application.sync_plan import plan_from_review
 from tests.sample_data import sample_source_config
 
 

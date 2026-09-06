@@ -144,8 +144,8 @@ def main():
     parser.add_argument('--socket', required=True)
     parser.add_argument('--api-uid', type=int, default=10001)
     args = parser.parse_args()
-    store = ScheduleStore(os.environ.get('INFRA_SYNC_SCHEDULE_WRITER_DSN', ''),
-                          os.environ.get('INFRA_SYNC_REGISTRY_SCHEMA', ''))
+    store = ScheduleStore(os.environ.get('NETBOX_SYNC_SCHEDULE_WRITER_DSN', ''),
+                          os.environ.get('NETBOX_SYNC_REGISTRY_SCHEMA', ''))
     serve(args.socket, store, args.api_uid)
 
 

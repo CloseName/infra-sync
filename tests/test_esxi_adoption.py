@@ -5,16 +5,16 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from netbox_pve_sync.esxi_adoption import (
+from netbox_sync.esxi_adoption import (
     AdoptionClassification,
     EsxiAdoptionError,
     apply_esxi_adoption_plan,
     build_esxi_adoption_plan,
 )
-from netbox_pve_sync.esxi_discovery import discover_hosts
-from netbox_pve_sync.netbox_vm_planner import plan_virtual_machines
-from netbox_pve_sync.source_config import SecretReference, SourceCredentials
-from netbox_pve_sync.source_identity import virtual_machine_source_identity
+from netbox_sync.esxi_discovery import discover_hosts
+from netbox_sync.netbox_vm_planner import plan_virtual_machines
+from netbox_sync.source_config import SecretReference, SourceCredentials
+from netbox_sync.source_identity import virtual_machine_source_identity
 
 from tests.fakes import FakeRecord
 from tests.fakes.esxi import fake_esxi_service

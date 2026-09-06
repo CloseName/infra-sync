@@ -6,8 +6,8 @@ from uuid import UUID
 
 import pytest
 
-from netbox_pve_sync.application.contracts import RunContext
-from netbox_pve_sync.application.observability import (
+from netbox_sync.application.contracts import RunContext
+from netbox_sync.application.observability import (
     Component, ErrorCode, RunEvent, run_event_record,
 )
 

@@ -2,23 +2,23 @@
 
 import pytest
 
-from netbox_pve_sync.netbox_lxc_metadata import (
+from netbox_sync.netbox_lxc_metadata import (
     build_lxc_custom_fields,
     matches_lxc_sync_identity,
 )
-from netbox_pve_sync.netbox_metadata import (
+from netbox_sync.netbox_metadata import (
     build_device_custom_fields,
     matches_sync_identity,
 )
-from netbox_pve_sync.netbox_vm_interface_metadata import (
+from netbox_sync.netbox_vm_interface_metadata import (
     build_nic_custom_fields,
     matches_nic_sync_identity,
 )
-from netbox_pve_sync.netbox_vm_metadata import (
+from netbox_sync.netbox_vm_metadata import (
     build_vm_custom_fields,
     matches_vm_sync_identity,
 )
-from netbox_pve_sync.proxmox_discovery import discover_hosts
+from netbox_sync.proxmox_discovery import discover_hosts
 
 from tests.fakes import FakeProxmox
 from tests.sample_data import (

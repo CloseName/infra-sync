@@ -166,7 +166,7 @@ class ApplySupervisor:
         operation = payload['operation']
         raw = json.dumps(payload).encode()
         try:
-            with self._popen([sys.executable, '-B', '-m', 'netbox_pve_sync.apply_worker', '--child'],
+            with self._popen([sys.executable, '-B', '-m', 'netbox_sync.apply_worker', '--child'],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                              env=_safe_environment(), preexec_fn=_drop_privileges(
                                  self._child_uid, self._child_gid) if os.name == 'posix' else None) as process:
@@ -367,7 +367,7 @@ def main():
     parser.add_argument('--secret-root')
     parser.add_argument('--source-secret-root')
     parser.add_argument('--netbox-token-file')
-    parser.add_argument('--lock-path', default='/run/infra-sync/apply.lock')
+    parser.add_argument('--lock-path', default='/run/netbox-sync/apply.lock')
     parser.add_argument('--api-uid', type=int, default=10001)
     parser.add_argument('--child-uid', type=int, default=10001)
     parser.add_argument('--child-gid', type=int, default=10001)
@@ -376,13 +376,13 @@ def main():
         child_main()
         return
     supervisor = ApplySupervisor(
-        os.environ.get('INFRA_SYNC_APPLY_REGISTRY_DSN', ''),
-        os.environ.get('INFRA_SYNC_REGISTRY_SCHEMA', ''), args.secret_root,
-        args.source_secret_root, os.environ.get('INFRA_SYNC_APPLY_NB_API_URL', ''),
+        os.environ.get('NETBOX_SYNC_APPLY_REGISTRY_DSN', ''),
+        os.environ.get('NETBOX_SYNC_REGISTRY_SCHEMA', ''), args.secret_root,
+        args.source_secret_root, os.environ.get('NETBOX_SYNC_APPLY_NB_API_URL', ''),
         args.netbox_token_file, args.lock_path, args.child_uid, args.child_gid,
         run_repository=postgres_run_repository(
-            os.environ.get('INFRA_SYNC_RUN_WRITER_DSN', ''),
-            os.environ.get('INFRA_SYNC_REGISTRY_SCHEMA', ''),
+            os.environ.get('NETBOX_SYNC_RUN_WRITER_DSN', ''),
+            os.environ.get('NETBOX_SYNC_REGISTRY_SCHEMA', ''),
         ))
     serve(args.socket, supervisor, args.api_uid)
 

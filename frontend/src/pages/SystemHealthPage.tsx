@@ -32,7 +32,7 @@ export function SystemHealthPage() {
   return <main>
     <div className="page-heading">
       <div><p className="eyebrow">SYSTEM OVERVIEW</p><h1>System health</h1>
-        <p className="intro">A read-only view of the Infra Sync application and its dependencies.</p></div>
+        <p className="intro">A read-only view of the NetBox Sync application and its dependencies.</p></div>
       <button onClick={() => setRevision((value) => value + 1)} disabled={loading}>
         {loading ? 'Checking…' : 'Refresh health'}
       </button>

@@ -172,7 +172,7 @@ class DiagnosticsDTO(PublicModel):
 class VersionDTO(PublicModel):
     """Package metadata, independent of Git."""
 
-    name: str = 'Infra Sync'
+    name: str = 'NetBox Sync'
     version: str
 
 

@@ -5,18 +5,18 @@ from dataclasses import replace
 
 import pytest
 
-import netbox_pve_sync.esxi_client as esxi_client
-from netbox_pve_sync.esxi_client import (
+import netbox_sync.esxi_client as esxi_client
+from netbox_sync.esxi_client import (
     EsxiClient,
     EsxiConnectionError,
     test_source_connection as check_source_connection,
 )
-from netbox_pve_sync.esxi_discovery import discover_hosts
-from netbox_pve_sync.esxi_executor import execute_esxi_source
-from netbox_pve_sync.orchestrator import run_sources
-from netbox_pve_sync.source_config import SecretReference, SourceCredentials
-from netbox_pve_sync.source_executor import SourceExecutorDispatch
-from netbox_pve_sync.source_identity import (
+from netbox_sync.esxi_discovery import discover_hosts
+from netbox_sync.esxi_executor import execute_esxi_source
+from netbox_sync.orchestrator import run_sources
+from netbox_sync.source_config import SecretReference, SourceCredentials
+from netbox_sync.source_executor import SourceExecutorDispatch
+from netbox_sync.source_identity import (
     host_source_identity,
     virtual_machine_nic_source_identity,
     virtual_machine_source_identity,
@@ -284,7 +284,7 @@ def test_malformed_vm_is_isolated_without_hiding_valid_inventory(monkeypatch):
     service = fake_esxi_service()
     warnings = []
     monkeypatch.setattr(
-        'netbox_pve_sync.esxi_discovery.LOGGER.warning',
+        'netbox_sync.esxi_discovery.LOGGER.warning',
         lambda message, **_values: warnings.append(message),
     )
     malformed = deepcopy(service.host.vm[0])
@@ -305,7 +305,7 @@ def test_malformed_nic_isolates_only_its_vm(monkeypatch):
     service = fake_esxi_service()
     warnings = []
     monkeypatch.setattr(
-        'netbox_pve_sync.esxi_discovery.LOGGER.warning',
+        'netbox_sync.esxi_discovery.LOGGER.warning',
         lambda message, **_values: warnings.append(message),
     )
     malformed = deepcopy(service.host.vm[0])

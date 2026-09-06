@@ -15,14 +15,14 @@ The canonical deployment runs the migration from the packaged application image;
 Python and a host virtual environment are not required:
 
 ```sh
-docker compose --env-file /opt/infra-sync/config/compose.env \
-  -f /opt/infra-sync/current/compose.production.yml --profile tools \
-  run --rm --no-deps infra-sync-migrate
+docker compose --env-file /opt/netbox-sync/config/compose.env \
+  -f /opt/netbox-sync/current/compose.production.yml --profile tools \
+  run --rm --no-deps netbox-sync-migrate
 ```
 
 For development only, `python -m pip install -r requirements-migrations.txt` followed by
 `alembic -c alembic.ini upgrade head` remains supported. In that mode supply
-`INFRA_SYNC_REGISTRY_DSN` and `INFRA_SYNC_REGISTRY_SCHEMA` through the operator's
+`NETBOX_SYNC_REGISTRY_DSN` and `NETBOX_SYNC_REGISTRY_SCHEMA` through the operator's
 protected environment. The canonical one-shot instead reads its owner password from
 the protected infrastructure-secret directory and builds the connection internally.
 Do not put either credential in alembic.ini, command arguments, logs or source control.
@@ -50,16 +50,20 @@ existing-table validation requires a live PostgreSQL connection.
   first validated/stamped by the baseline in the same migration transaction,
   then receives the additive history table. A partial, drifted or newer legacy
   schema still fails closed before WEB-6 DDL is committed.
+- Revision `0003_netbox_sync_naming` is a schema-neutral marker after the explicit
+  operator database/schema transition. It accepts only canonical `netbox_sync`, plus
+  uniquely named schemas inside the separately guarded `netbox_sync_test` database;
+  it creates, updates and deletes no application rows or objects.
 - Current SourceRegistry.initialize() remains unchanged for compatibility. Once
   migrated, operators use Alembic for schema evolution rather than extending
   initialize(). Future revisions must remain independent of mutable runtime code.
 - Before Alembic begins, the canonical migration command verifies ownership of the
   database, registry schema and all existing registry tables. Existing objects must be
-  owned by `infra_sync_owner`; a mismatch fails before DDL. Ownership is never silently
+  owned by `netbox_sync_owner`; a mismatch fails before DDL. Ownership is never silently
   reassigned by the migration command.
 
 The migration owner is provisioned separately from runtime roles. The tracked
-`infra-sync-db-grants` operation reapplies the exact least-privilege matrix after
+`netbox-sync-db-grants` operation reapplies the exact least-privilege matrix after
 migration; see [Deployment](deployment.md#database-lifecycle-and-roles).
 
 ## Validation
@@ -67,7 +71,7 @@ migration; see [Deployment](deployment.md#database-lifecycle-and-roles).
 Unit tests validate revision discovery, offline rejection, frozen schema and drift
 checks without a server. Opt-in integration tests exercise a clean install,
 populated legacy adoption, repeated upgrade, unknown version and rollback. Set
-`INFRA_SYNC_TEST_POSTGRES_DSN` only to a disposable database named `infra_sync_test`.
+`NETBOX_SYNC_TEST_POSTGRES_DSN` only to a disposable database named `netbox_sync_test`.
 Tests create unique schemas and remove only their own schemas on cleanup. Never
 point this variable at a production database. PostgreSQL tests may skip when the
 test DSN is absent; such a pass is not evidence of a live migration rehearsal.

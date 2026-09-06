@@ -12,10 +12,10 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from netbox_pve_sync.api import connection_probe as probe
-from netbox_pve_sync.api.egress import EgressPolicy, pinned_dns, validate_host
-from netbox_pve_sync.api.onboarding_adapters import BrokerSecretStore, RegistrationRegistry
-from netbox_pve_sync.application.onboarding import EphemeralOnboardingStore, OnboardingError, SourceOnboardingService
+from netbox_sync.api import connection_probe as probe
+from netbox_sync.api.egress import EgressPolicy, pinned_dns, validate_host
+from netbox_sync.api.onboarding_adapters import BrokerSecretStore, RegistrationRegistry
+from netbox_sync.application.onboarding import EphemeralOnboardingStore, OnboardingError, SourceOnboardingService
 from tests.test_onboarding import credentials, command, FakeSecrets, SECRET
 
 
@@ -83,7 +83,7 @@ def test_internal_hostname_and_all_dns_answers_checked():
 
 def test_operator_allow_deny_and_container_name_policy():
     with pytest.raises(OnboardingError):
-        EgressPolicy().resolve('infra-sync-postgres', 443, lambda *args: answers('10.1.1.1'))
+        EgressPolicy().resolve('netbox-sync-postgres', 443, lambda *args: answers('10.1.1.1'))
     assert EgressPolicy(allowed_hosts=('esxi',)).resolve('esxi', 443, lambda *args: answers('10.1.1.1'))[1]
     with pytest.raises(OnboardingError):
         EgressPolicy().resolve('8.8.8.8', 443)
@@ -168,11 +168,11 @@ def test_whole_deadline_kills_and_reaps_child_without_credential_argv(monkeypatc
     factory = MagicMock()
     process = factory.return_value.__enter__.return_value
     process.communicate.side_effect = [subprocess.TimeoutExpired('probe', 15), (b'', b'')]
-    monkeypatch.setenv('INFRA_SYNC_REGISTRATION_DSN', 'MUST_NOT_INHERIT')
+    monkeypatch.setenv('NETBOX_SYNC_REGISTRATION_DSN', 'MUST_NOT_INHERIT')
     with pytest.raises(OnboardingError, match='SOURCE_TIMEOUT') as caught:
         probe.run_connection_test(credentials(), popen=factory)
     assert SECRET not in str(caught.value) + repr(factory.call_args)
-    assert 'INFRA_SYNC_REGISTRATION_DSN' not in factory.call_args.kwargs['env']
+    assert 'NETBOX_SYNC_REGISTRATION_DSN' not in factory.call_args.kwargs['env']
     assert process.communicate.call_args_list[0].kwargs['timeout'] == 15
     process.kill.assert_called_once()
     assert process.communicate.call_count == 2
@@ -232,8 +232,8 @@ def test_pinned_https_keeps_original_tls_server_name():
 
 
 def test_secret_layout_fallback_preserves_legacy_priority_and_custom_root(tmp_path):
-    from netbox_pve_sync.secret_resolver import FileSecretResolver, SecretResolutionError
-    from netbox_pve_sync.source_config import SecretReference
+    from netbox_sync.secret_resolver import FileSecretResolver, SecretResolutionError
+    from netbox_sync.source_config import SecretReference
     old, new = tmp_path / 'old', tmp_path / 'new'
     old.mkdir()
     new.mkdir()
@@ -254,8 +254,8 @@ def test_secret_layout_fallback_preserves_legacy_priority_and_custom_root(tmp_pa
 
 def test_secret_layout_never_falls_back_on_permission_error(tmp_path):
     from pathlib import Path
-    from netbox_pve_sync.secret_resolver import FileSecretResolver, SecretResolutionError
-    from netbox_pve_sync.source_config import SecretReference
+    from netbox_sync.secret_resolver import FileSecretResolver, SecretResolutionError
+    from netbox_sync.source_config import SecretReference
     with patch.object(Path, 'read_text', side_effect=PermissionError('blocked')) as read:
         with pytest.raises(SecretResolutionError):
             FileSecretResolver(secret_root=tmp_path, source_secret_root=tmp_path / 'new').resolve(
@@ -265,8 +265,8 @@ def test_secret_layout_never_falls_back_on_permission_error(tmp_path):
 
 def test_cancellation_revokes_token_without_registry_or_broker_writes():
     from fastapi.testclient import TestClient
-    from netbox_pve_sync.api.app import create_app
-    from netbox_pve_sync.api.settings import ApiSettings
+    from netbox_sync.api.app import create_app
+    from netbox_sync.api.settings import ApiSettings
     from tests.test_onboarding import service, HEADERS
     instance, registry, secrets = service()
     token = instance.test_connection(credentials())

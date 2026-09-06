@@ -2,9 +2,9 @@
 
 from dataclasses import replace
 
-from netbox_pve_sync.orchestrator import HistoryStatus, run_sources
-from netbox_pve_sync.run_history import RunStatus
-from netbox_pve_sync.source_executor import SourceExecutorDispatch
+from netbox_sync.orchestrator import HistoryStatus, run_sources
+from netbox_sync.run_history import RunStatus
+from netbox_sync.source_executor import SourceExecutorDispatch
 
 from tests.sample_data import sample_source_config
 

@@ -2,7 +2,7 @@
 
 from proxmoxer import ResourceException
 
-from netbox_pve_sync.source_config import (
+from netbox_sync.source_config import (
     NetBoxTargetConfig,
     SecretReference,
     SourceConfig,

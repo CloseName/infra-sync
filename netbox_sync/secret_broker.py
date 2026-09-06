@@ -20,6 +20,16 @@ OPERATION_PATTERN = re.compile(r'^[A-Za-z0-9_-]{20,128}$')
 MAX_SECRET_BYTES = 4096
 MAX_REQUEST_BYTES = 8192
 REQUEST_DEADLINE = 5
+XATTR_NAMES = {
+    'operation': 'user.netbox_sync.operation',
+    'receipt': 'user.netbox_sync.receipt',
+    'complete': 'user.netbox_sync.complete',
+}
+LEGACY_XATTR_NAMES = {
+    'operation': 'user.infra_sync.operation',
+    'receipt': 'user.infra_sync.receipt',
+    'complete': 'user.infra_sync.complete',
+}
 
 
 class BrokerError(Exception):
@@ -79,6 +89,23 @@ class SecretBrokerStore:
         os.fsync(self._directory)
 
     @staticmethod
+    def _stored_attributes(descriptor):
+        """Read one complete legacy/new receipt set and reject mixed conflicts."""
+        present = set(os.listxattr(descriptor))
+        complete = []
+        for names in (XATTR_NAMES, LEGACY_XATTR_NAMES):
+            selected = set(names.values()).intersection(present)
+            if selected and selected != set(names.values()):
+                raise BrokerError('ROLLBACK_NOT_AUTHORIZED')
+            if selected:
+                complete.append({key: os.getxattr(descriptor, name)
+                                 for key, name in names.items()})
+        if not complete or any(values != complete[0] for values in complete[1:]):
+            raise BrokerError('ROLLBACK_NOT_AUTHORIZED')
+        names = XATTR_NAMES if set(XATTR_NAMES.values()).issubset(present) else LEGACY_XATTR_NAMES
+        return complete[0], {names[key]: value for key, value in complete[0].items()}
+
+    @staticmethod
     def _key(key):
         if (not isinstance(key, str) or not KEY_PATTERN.fullmatch(key) or key in ('.', '..')
                 or '%' in key or '/' in key or '\\' in key):
@@ -104,10 +131,10 @@ class SecretBrokerStore:
             )
             os.fchmod(descriptor, 0o600)
             os.fchown(descriptor, 0, 0)
-            os.setxattr(descriptor, 'user.infra_sync.operation', operation_id.encode())
-            attributes['user.infra_sync.operation'] = operation_id.encode()
-            os.setxattr(descriptor, 'user.infra_sync.receipt', rollback_token.encode())
-            attributes['user.infra_sync.receipt'] = rollback_token.encode()
+            os.setxattr(descriptor, XATTR_NAMES['operation'], operation_id.encode())
+            attributes[XATTR_NAMES['operation']] = operation_id.encode()
+            os.setxattr(descriptor, XATTR_NAMES['receipt'], rollback_token.encode())
+            attributes[XATTR_NAMES['receipt']] = rollback_token.encode()
             written = 0
             while written < len(value):
                 count = os.write(descriptor, value[written:])
@@ -115,8 +142,8 @@ class SecretBrokerStore:
                     raise OSError('Secret write failed')
                 written += count
             os.fsync(descriptor)
-            os.setxattr(descriptor, 'user.infra_sync.complete', b'1')
-            attributes['user.infra_sync.complete'] = b'1'
+            os.setxattr(descriptor, XATTR_NAMES['complete'], b'1')
+            attributes[XATTR_NAMES['complete']] = b'1'
             os.fsync(descriptor)
         except FileExistsError:
             return self._repeat_create(operation_id, key, value)
@@ -139,15 +166,16 @@ class SecretBrokerStore:
         try:
             descriptor = os.open(key, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=self._directory)
             info = os.fstat(descriptor)
+            stored, _attributes = self._stored_attributes(descriptor)
             if (not file_stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
                     or info.st_nlink != 1 or file_stat.S_IMODE(info.st_mode) != 0o600
-                    or os.getxattr(descriptor, 'user.infra_sync.operation') != operation_id.encode()
-                    or os.getxattr(descriptor, 'user.infra_sync.complete') != b'1'
+                    or stored['operation'] != operation_id.encode()
+                    or stored['complete'] != b'1'
                     or os.read(descriptor, MAX_SECRET_BYTES + 1) != value):
                 raise BrokerError('SECRET_ALREADY_EXISTS')
             os.fsync(descriptor)
             os.fsync(self._directory)
-            return os.getxattr(descriptor, 'user.infra_sync.receipt').decode()
+            return stored['receipt'].decode()
         except OSError:
             raise BrokerError('SECRET_ALREADY_EXISTS') from None
         finally:
@@ -163,20 +191,17 @@ class SecretBrokerStore:
             descriptor = os.open(key, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=self._directory)
             info = os.fstat(descriptor)
             current = os.stat(key, dir_fd=self._directory, follow_symlinks=False)
+            stored, attributes = self._stored_attributes(descriptor)
             if (not file_stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0
                     or info.st_nlink != 1 or file_stat.S_IMODE(info.st_mode) != 0o600
                     or (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino)
-                    or os.getxattr(descriptor, 'user.infra_sync.operation') != operation_id.encode()
-                    or os.getxattr(descriptor, 'user.infra_sync.complete') != b'1'
+                    or stored['operation'] != operation_id.encode()
+                    or stored['complete'] != b'1'
                     or not secrets.compare_digest(
-                        os.getxattr(descriptor, 'user.infra_sync.receipt').decode(), rollback_token or '',
+                        stored['receipt'].decode(), rollback_token or '',
                     )):
                 raise BrokerError('ROLLBACK_NOT_AUTHORIZED')
-            self._unlink_owned(descriptor, key, {
-                'user.infra_sync.operation': operation_id.encode(),
-                'user.infra_sync.receipt': rollback_token.encode(),
-                'user.infra_sync.complete': b'1',
-            })
+            self._unlink_owned(descriptor, key, attributes)
         except OSError:
             raise BrokerError('ROLLBACK_NOT_AUTHORIZED') from None
         finally:

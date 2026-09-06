@@ -5,10 +5,10 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from netbox_pve_sync.api.app import create_app
-from netbox_pve_sync.api.settings import ApiSettings
-from netbox_pve_sync.application.runs import RunHistoryService
-from netbox_pve_sync.run_history import ActionCounts, RunStatus, RunTrigger, SyncRun
+from netbox_sync.api.app import create_app
+from netbox_sync.api.settings import ApiSettings
+from netbox_sync.application.runs import RunHistoryService
+from netbox_sync.run_history import ActionCounts, RunStatus, RunTrigger, SyncRun
 
 
 RUN = SyncRun(UUID('11111111-1111-4111-8111-111111111111'), 'pve-test', 'proxmox',

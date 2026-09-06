@@ -1,1 +1,1 @@
-"""Test suite for Infra Sync."""
+"""Test suite for NetBox Sync."""

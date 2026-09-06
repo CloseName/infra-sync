@@ -8,8 +8,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from netbox_pve_sync.secret_broker import BrokerError, SecretBrokerStore
-from netbox_pve_sync.secret_broker import read_request
+from netbox_sync.secret_broker import BrokerError, SecretBrokerStore
+from netbox_sync.secret_broker import read_request
 
 pytestmark = pytest.mark.skipif(not hasattr(os, 'geteuid') or getattr(os, 'geteuid', lambda: -1)() != 0,
                                 reason='Requires disposable Linux root test container')
@@ -87,6 +87,21 @@ def test_broker_restart_preserves_receipt_and_idempotent_replay(store):
     assert not (root / KEY).exists()
 
 
+def test_legacy_receipt_xattrs_support_replay_and_rollback(store):
+    broker, root = store
+    token = broker.create(OP, KEY, VALUE)
+    path = root / KEY
+    for attribute in ('operation', 'receipt', 'complete'):
+        current = 'user.netbox_sync.' + attribute
+        legacy = 'user.infra_sync.' + attribute
+        os.setxattr(path, legacy, os.getxattr(path, current))
+        os.removexattr(path, current)
+    restarted = SecretBrokerStore(root)
+    assert restarted.create(OP, KEY, VALUE) == token
+    restarted.rollback(OP, KEY, token)
+    assert not path.exists()
+
+
 def test_parent_directory_symlink_is_rejected(tmp_path):
     real = tmp_path / 'real'
     real.mkdir(mode=0o700)
@@ -101,7 +116,7 @@ def test_xattr_failure_cleans_only_created_file(store, monkeypatch, attribute, e
     broker, root = store
     original = os.setxattr
     def fail(descriptor, name, value):
-        if name == 'user.infra_sync.' + attribute:
+        if name == 'user.netbox_sync.' + attribute:
             raise OSError(error_number, 'fake failure')
         return original(descriptor, name, value)
     monkeypatch.setattr(os, 'setxattr', fail)
@@ -115,7 +130,7 @@ def test_xattr_failure_cleans_only_created_file(store, monkeypatch, attribute, e
 def test_tampered_or_missing_xattr_cannot_authorize_rollback(store, attribute, remove):
     broker, root = store
     receipt = broker.create(OP, KEY, VALUE)
-    name = 'user.infra_sync.' + attribute
+    name = 'user.netbox_sync.' + attribute
     if remove:
         os.removexattr(root / KEY, name)
     else:

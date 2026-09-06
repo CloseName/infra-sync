@@ -16,7 +16,7 @@ def _revision(revision='0001_registry_baseline'):
 
 
 def _snapshot():
-    expected = _revision().tables('infra_sync_test')
+    expected = _revision().tables('netbox_sync_test')
     columns = {
         table.name: [
             {'name': column.name, 'type': column.type, 'nullable': column.nullable,
@@ -47,15 +47,37 @@ def test_catalog_has_single_forward_only_baseline():
     assert revision.revision == '0001_registry_baseline'
     assert revision.down_revision is None
     with pytest.raises(RuntimeError, match='Downgrade'):
-        revision.downgrade('infra_sync_test')
+        revision.downgrade('netbox_sync_test')
 
 
 def test_history_revision_is_additive_and_forward_only():
-    revision = _revision('head')
+    revision = _revision('0002_sync_run_history')
     assert revision.revision == '0002_sync_run_history'
     assert revision.down_revision == '0001_registry_baseline'
     with pytest.raises(RuntimeError, match='Downgrade'):
-        revision.downgrade('infra_sync_test')
+        revision.downgrade('netbox_sync_test')
+
+
+def test_naming_revision_is_forward_only_and_schema_neutral():
+    revision = _revision('head')
+    assert revision.revision == '0003_netbox_sync_naming'
+    assert revision.down_revision == '0002_sync_run_history'
+    assert revision.upgrade('netbox_sync') is None
+    with pytest.raises(RuntimeError, match='Downgrade'):
+        revision.downgrade('netbox_sync')
+
+
+def test_naming_revision_allows_only_guarded_disposable_test_schema(monkeypatch):
+    revision = _revision('head')
+    result = SimpleNamespace(scalar_one=lambda: 'netbox_sync_test')
+    binding = SimpleNamespace(execute=lambda _query: result)
+    monkeypatch.setattr(revision.op, 'get_bind', lambda: binding)
+    assert revision.upgrade('netbox_sync_test_isolated') is None
+    with pytest.raises(RuntimeError, match='canonical state'):
+        revision.upgrade('operator_schema')
+    result.scalar_one = lambda: 'production'
+    with pytest.raises(RuntimeError, match='canonical state'):
+        revision.upgrade('netbox_sync_test_isolated')
 
 
 def test_legacy_snapshot_validates_without_writes(monkeypatch):

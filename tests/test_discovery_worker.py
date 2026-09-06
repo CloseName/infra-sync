@@ -7,10 +7,10 @@ from dataclasses import replace
 
 import pytest
 
-from netbox_pve_sync.discovery_worker import (DiscoverySupervisor, WorkerError, _authorize_peer,
+from netbox_sync.discovery_worker import (DiscoverySupervisor, WorkerError, _authorize_peer,
                                                _receive, _safe_environment, child_main)
-from netbox_pve_sync.source_config import SecretReference, SourceCredentials
-from netbox_pve_sync.secret_resolver import FileSecretResolver, SecretResolutionError
+from netbox_sync.source_config import SecretReference, SourceCredentials
+from netbox_sync.secret_resolver import FileSecretResolver, SecretResolutionError
 from tests.sample_data import sample_source_config
 
 
@@ -35,10 +35,10 @@ class ChildInput:
 
 def _run_child(monkeypatch, payload, execute):
     output, errors = StringIO(), StringIO()
-    monkeypatch.setattr('netbox_pve_sync.discovery_worker.execute_child', execute)
-    monkeypatch.setattr('netbox_pve_sync.discovery_worker.sys.stdin', ChildInput(payload))
-    monkeypatch.setattr('netbox_pve_sync.discovery_worker.sys.stdout', output)
-    monkeypatch.setattr('netbox_pve_sync.discovery_worker.sys.stderr', errors)
+    monkeypatch.setattr('netbox_sync.discovery_worker.execute_child', execute)
+    monkeypatch.setattr('netbox_sync.discovery_worker.sys.stdin', ChildInput(payload))
+    monkeypatch.setattr('netbox_sync.discovery_worker.sys.stdout', output)
+    monkeypatch.setattr('netbox_sync.discovery_worker.sys.stderr', errors)
     child_main()
     return output.getvalue(), errors.getvalue()
 
@@ -102,21 +102,21 @@ def test_worker_rejects_malformed_or_capability_bearing_request(payload):
 
 
 def test_child_environment_excludes_credentials_and_database_capabilities(monkeypatch):
-    monkeypatch.setenv('INFRA_SYNC_REGISTRATION_DSN', 'WRITER_SECRET')
-    monkeypatch.setenv('INFRA_SYNC_DISCOVERY_REGISTRY_DSN', 'READER_SECRET')
+    monkeypatch.setenv('NETBOX_SYNC_REGISTRATION_DSN', 'WRITER_SECRET')
+    monkeypatch.setenv('NETBOX_SYNC_DISCOVERY_REGISTRY_DSN', 'READER_SECRET')
     monkeypatch.setenv('NB_API_TOKEN', 'NETBOX_SECRET')
     monkeypatch.setenv('HTTPS_PROXY', 'PROXY_SECRET')
     environment = _safe_environment()
     serialized = json.dumps(environment)
     assert 'SECRET' not in serialized
-    assert 'INFRA_SYNC_REGISTRATION_DSN' not in environment
+    assert 'NETBOX_SYNC_REGISTRATION_DSN' not in environment
     assert set(environment) <= {'PATH', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'LANG', 'LC_ALL',
                                 'PYTHONDONTWRITEBYTECODE'}
 
 
 def test_worker_rejects_wrong_peer_uid(monkeypatch):
-    monkeypatch.setattr('netbox_pve_sync.discovery_worker.socket.SO_PEERCRED', 17, raising=False)
-    monkeypatch.setattr('netbox_pve_sync.discovery_worker.struct.unpack', lambda *_args: (1, 10002, 10002))
+    monkeypatch.setattr('netbox_sync.discovery_worker.socket.SO_PEERCRED', 17, raising=False)
+    monkeypatch.setattr('netbox_sync.discovery_worker.struct.unpack', lambda *_args: (1, 10002, 10002))
     peer = type('Peer', (), {'getsockopt': lambda *_args: b'x' * 12})()
     with pytest.raises(WorkerError, match='PEER_FORBIDDEN'):
         _authorize_peer(peer, 10001)
@@ -170,7 +170,7 @@ def test_timeout_kills_reaps_and_next_request_can_succeed(tmp_path, monkeypatch)
     def popen(argv, **kwargs):
         captured.append((argv, kwargs))
         return processes.pop(0)
-    supervisor = DiscoverySupervisor('reader', 'infra_sync', tmp_path, tmp_path,
+    supervisor = DiscoverySupervisor('reader', 'netbox_sync', tmp_path, tmp_path,
                                      'http://netbox.test', token, 10001, 10001, popen=popen)
     monkeypatch.setattr(supervisor, '_source', lambda _instance: config)
     with pytest.raises(WorkerError, match='DISCOVERY_TIMEOUT'):
@@ -178,4 +178,4 @@ def test_timeout_kills_reaps_and_next_request_can_succeed(tmp_path, monkeypatch)
     assert supervisor.run('pve-infra-test')['items'] == []
     for argv, kwargs in captured:
         assert secret not in json.dumps(argv) + json.dumps(kwargs['env'])
-        assert 'INFRA_SYNC_REGISTRATION_DSN' not in kwargs['env']
+        assert 'NETBOX_SYNC_REGISTRATION_DSN' not in kwargs['env']

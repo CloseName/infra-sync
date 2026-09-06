@@ -5,14 +5,14 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from netbox_pve_sync.api.app import create_app
-from netbox_pve_sync.api.discovery_client import DiscoveryRequestError
-from netbox_pve_sync.api.settings import ApiSettings
+from netbox_sync.api.app import create_app
+from netbox_sync.api.discovery_client import DiscoveryRequestError
+from netbox_sync.api.settings import ApiSettings
 
 
 SECRET = 'DISCOVERY_SECRET_SENTINEL'
 HEADERS = {'host': 'localhost:8000', 'origin': 'http://localhost:8000',
-           'x-infra-sync-csrf': 'same-origin', 'content-type': 'application/json'}
+           'x-netbox-sync-csrf': 'same-origin', 'content-type': 'application/json'}
 
 
 def result(**changes):

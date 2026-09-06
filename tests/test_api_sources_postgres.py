@@ -1,4 +1,4 @@
-"""Opt-in source visibility against the disposable infra_sync_test database only."""
+"""Opt-in source visibility against the disposable netbox_sync_test database only."""
 
 import json
 import uuid
@@ -8,9 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg import sql
 
-from netbox_pve_sync.api.app import create_app
-from netbox_pve_sync.api.settings import ApiSettings
-from netbox_pve_sync.source_registry import SourceRegistry
+from netbox_sync.api.app import create_app
+from netbox_sync.api.settings import ApiSettings
+from netbox_sync.source_registry import SourceRegistry
 from tests.sample_data import sample_source_config
 from tests.test_source_registry_postgres import _safe_test_dsn
 
@@ -18,7 +18,7 @@ from tests.test_source_registry_postgres import _safe_test_dsn
 @pytest.fixture
 def source_database():
     dsn = _safe_test_dsn()
-    schema = 'infra_sync_test_' + uuid.uuid4().hex
+    schema = 'netbox_sync_test_' + uuid.uuid4().hex
     registry = SourceRegistry(lambda: psycopg.connect(dsn), schema)
     # Setup only, never the API path. No Alembic baseline is applied.
     registry.initialize()
@@ -27,7 +27,7 @@ def source_database():
         with TestClient(create_app(settings)) as client:
             yield registry, client
     finally:
-        assert schema.startswith('infra_sync_test_')
+        assert schema.startswith('netbox_sync_test_')
         with psycopg.connect(dsn) as connection:
             connection.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
 

@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from netbox_pve_sync.proxmox_discovery import discover_hosts
+from netbox_sync.proxmox_discovery import discover_hosts
 
 from tests.fakes import FakeProxmox
 from tests.sample_data import (
@@ -131,7 +131,7 @@ def test_bad_qemu_vmid_is_isolated_while_lxc_remains(monkeypatch):
     responses[('nodes', 'node-a', 'qemu')][0]['vmid'] = '../../100'
     warnings = []
     monkeypatch.setattr(
-        'netbox_pve_sync.proxmox_discovery.LOGGER.warning',
+        'netbox_sync.proxmox_discovery.LOGGER.warning',
         lambda message, kind, **_kwargs: warnings.append(message % kind),
     )
 
@@ -147,7 +147,7 @@ def test_bad_lxc_resources_are_isolated_while_qemu_remains(monkeypatch):
     responses[('nodes', 'node-a', 'lxc', 100, 'config')]['memory'] = 'invalid'
     warnings = []
     monkeypatch.setattr(
-        'netbox_pve_sync.proxmox_discovery.LOGGER.warning',
+        'netbox_sync.proxmox_discovery.LOGGER.warning',
         lambda message, kind, **_kwargs: warnings.append(message % kind),
     )
 

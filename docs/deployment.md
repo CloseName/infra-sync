@@ -6,13 +6,13 @@ restored database before changing an existing installation.
 
 ## Topology
 
-`compose.production.yml` defines one stable Compose project (`infra-sync`), one
+`compose.production.yml` defines one stable Compose project (`netbox-sync`), one
 application image and separate API, discovery, apply, schedule, secret-broker and
 transient scheduler processes. Bundled PostgreSQL 16 is the default. Its deterministic
-volume is `infra-sync-postgres-data`, it is attached to the private `infra-sync-db`
+volume is `netbox-sync-postgres-data`, it is attached to the private `netbox-sync-db`
 network and it has no host-published port. The API also joins a dedicated Web bridge
 for its loopback-published port. Discovery, apply and scheduled execution
-also join `infra-sync-egress` for normal HTTPS connections to providers and NetBox.
+also join `netbox-sync-egress` for normal HTTPS connections to providers and NetBox.
 There is no NetBox Docker-network dependency. The broker is networkless and the
 schedule worker has DB access only.
 
@@ -27,7 +27,7 @@ Compose edit.
 ## Host layout
 
 ```text
-/opt/infra-sync/
+/opt/netbox-sync/
   releases/<release-id>/       immutable packaged release
   current -> releases/<id>     atomic active-release link
   config/                      generated service-specific env files (0750/0600)
@@ -36,7 +36,7 @@ Compose edit.
   secrets/netbox/              read-token and apply-token files (0700/0600)
   backups/                     protected complete Backup Format v1 bundles (0700)
   state/                       future persistent operator state
-/run/infra-sync/               shared apply lock (0750)
+/run/netbox-sync/               shared apply lock (0750)
 ```
 
 Release directories and code are normalized to 0755 directories, 0644 data/code and
@@ -93,23 +93,23 @@ unavailable meanwhile.
 The one-shot services provide the supported host-venv-free operations:
 
 ```sh
-docker compose --env-file /opt/infra-sync/config/compose.env \
-  -f /opt/infra-sync/current/compose.production.yml --profile tools \
-  run --rm --no-deps infra-sync-db-roles
-docker compose --env-file /opt/infra-sync/config/compose.env \
-  -f /opt/infra-sync/current/compose.production.yml --profile tools \
-  run --rm --no-deps infra-sync-migrate
-docker compose --env-file /opt/infra-sync/config/compose.env \
-  -f /opt/infra-sync/current/compose.production.yml --profile tools \
-  run --rm --no-deps infra-sync-db-grants
+docker compose --env-file /opt/netbox-sync/config/compose.env \
+  -f /opt/netbox-sync/current/compose.production.yml --profile tools \
+  run --rm --no-deps netbox-sync-db-roles
+docker compose --env-file /opt/netbox-sync/config/compose.env \
+  -f /opt/netbox-sync/current/compose.production.yml --profile tools \
+  run --rm --no-deps netbox-sync-migrate
+docker compose --env-file /opt/netbox-sync/config/compose.env \
+  -f /opt/netbox-sync/current/compose.production.yml --profile tools \
+  run --rm --no-deps netbox-sync-db-grants
 ```
 
-Role bootstrap is fixed and idempotent. `infra_sync_owner` owns migrations;
-`infra_sync_web_reader`, `infra_sync_discovery_reader`,
-`infra_sync_apply_registry_reader`, and `infra_sync_registry_reader` are readers;
-`infra_sync_registration_writer` can select and insert the exact source-registration
-columns; `infra_sync_run_writer` can select/insert/update only run-history lifecycle
-columns; `infra_sync_schedule_writer` can select/update only the two schedule columns.
+Role bootstrap is fixed and idempotent. `netbox_sync_owner` owns migrations;
+`netbox_sync_web_reader`, `netbox_sync_discovery_reader`,
+`netbox_sync_apply_registry_reader`, and `netbox_sync_registry_reader` are readers;
+`netbox_sync_registration_writer` can select and insert the exact source-registration
+columns; `netbox_sync_run_writer` can select/insert/update only run-history lifecycle
+columns; `netbox_sync_schedule_writer` can select/update only the two schedule columns.
 Runtime roles receive no DELETE, TRUNCATE, DDL, role administration or writes to
 `schema_meta`. PUBLIC schema/table/sequence and owner default table privileges are
 revoked before the explicit grants are reapplied.
@@ -120,20 +120,20 @@ downgrade path. Always back up and rehearse a restored copy before production mi
 
 ## Scheduled execution and locking
 
-The tracked service calls `/opt/infra-sync/current/scripts/run-scheduled-sync.sh` every
+The tracked service calls `/opt/netbox-sync/current/scripts/run-scheduled-sync.sh` every
 60 seconds. That wrapper invokes the full canonical Compose file, so existing long-lived
 containers belong to the same model and do not appear as orphans. It never uses
 `--remove-orphans` and never bind-mounts source code.
 
 The wrapper is the **only** scheduled `flock` owner. It locks
-`/run/infra-sync/apply.lock`; the manual apply worker mounts only `/run/infra-sync` and
+`/run/netbox-sync/apply.lock`; the manual apply worker mounts only `/run/netbox-sync` and
 opens the same inode. A still-running oneshot cannot be started again by the timer, and
 the shared lock remains the final barrier against manual/scheduled overlap.
 
 ## Safe upgrade and failure behavior
 
 For an existing canonical install the installer stops the timer, then waits up to two
-minutes for `/run/infra-sync/apply.lock`. It never kills an active apply. Holding that
+minutes for `/run/netbox-sync/apply.lock`. It never kills an active apply. Holding that
 same lock prevents manual and scheduled writers throughout database preparation and
 activation; there is no second deployment lock.
 
@@ -156,27 +156,27 @@ Bundled PostgreSQL is intentionally the default. For an operator-managed Postgre
 combine `compose.production.yml` with `compose.external-postgres.yml`; the override puts
 the bundled service behind an inactive profile and moves DB-only consumers/tools onto
 the egress bridge so they can reach the operator endpoint. Supply service DSNs in the protected
-generated env files and set `INFRA_SYNC_DB_HOST`/`INFRA_SYNC_DB_PORT` for one-shot tools.
+generated env files and set `NETBOX_SYNC_DB_HOST`/`NETBOX_SYNC_DB_PORT` for one-shot tools.
 The external server must provide the bootstrap database/user for initial role creation.
 Do not expose or reuse NetBox's database.
 
 ## Existing-install transition and deferred work
 
-Do not switch an existing deployment automatically. Back up the database/config/secrets,
-rehearse the Alembic baseline, copy legacy source secrets into the broker directory,
-populate generated service env files, build a pinned image, install the tracked unit,
-then validate shared-lock contention before enabling manual or scheduled apply. The old
-`compose.yml`, `compose.web.yml`, `compose.apply.yml`, and `scripts/run-full-sync.sh`
-remain explicit compatibility artifacts only; they are not the clean-install path.
+Do not switch an existing deployment automatically. Follow the explicit
+[naming transition](naming-migration.md): back up database/config/secrets, migrate a
+staged config copy, transition database/schema/roles, build a pinned image, install
+the tracked units, and validate shared-lock contention before enabling manual or
+scheduled apply. The small `compose.yml` path remains a single-source compatibility
+entrypoint, but it also uses canonical product/package/path naming.
 
 Before migrating an existing registry, the migration command verifies that the
 database, selected schema and every existing table in that schema are owned by
-`infra_sync_owner`. Missing schema is valid for a clean install. A legacy owner mismatch
+`netbox_sync_owner`. Missing schema is valid for a clean install. A legacy owner mismatch
 fails before Alembic DDL with safe operator guidance; the installer never performs a
 hidden ownership takeover. Reassign ownership only through a separately reviewed,
 backup-backed transition procedure.
 
-Final naming, interactive onboarding, RBAC/LDAPS, TLS/reverse proxy,
+Interactive onboarding, RBAC/LDAPS, TLS/reverse proxy,
 resource limits, run-history retention and stale-run recovery are deliberately deferred.
 The supported logical backup/fresh-restore workflow is documented in
 [Backup and restore](backup-restore.md). Run history remains unlimited and stale

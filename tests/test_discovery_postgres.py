@@ -7,8 +7,8 @@ import pytest
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
-from netbox_pve_sync.discovery_worker import DiscoverySupervisor
-from netbox_pve_sync.source_registry import SourceRegistry
+from netbox_sync.discovery_worker import DiscoverySupervisor
+from netbox_sync.source_registry import SourceRegistry
 from tests.sample_data import sample_source_config
 from tests.test_source_registry_postgres import _safe_test_dsn
 
@@ -17,8 +17,8 @@ def test_discovery_reader_exact_grants_allow_lookup_and_deny_mutation():
     """Exercise the production repository with only documented WEB-4 grants."""
     admin_dsn = _safe_test_dsn()
     suffix = uuid.uuid4().hex
-    schema = f'infra_sync_test_{suffix}'
-    role = f'infra_sync_discovery_{suffix}'
+    schema = f'netbox_sync_test_{suffix}'
+    role = f'netbox_sync_discovery_{suffix}'
     password = f'fake-{suffix}'
     registry = SourceRegistry(lambda: psycopg.connect(admin_dsn), schema)
     registry.initialize()

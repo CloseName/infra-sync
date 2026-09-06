@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from deploy import backup, install
-from netbox_pve_sync import deployment
+from netbox_sync import deployment
 
 
 ROOT = Path(__file__).parents[1]
@@ -30,6 +30,7 @@ class FakeDatabase:
         self.revision = revision
         self.major = major
         self.restore_calls = 0
+        self.restored_schema = None
 
     def metadata(self):
         return {
@@ -62,9 +63,10 @@ class FakeDatabase:
     def validate_foundation_target(self):
         return None
 
-    def restore_fresh(self, dump, _maintenance):
+    def restore_fresh(self, dump, _maintenance, source_schema=backup.SCHEMA_NAME):
         self.verify_dump(dump)
         self.restore_calls += 1
+        self.restored_schema = source_schema
 
 
 def _layout(root):
@@ -78,7 +80,7 @@ def _layout(root):
         path.chmod(mode)
     install.activate_release(root, root / 'releases/r1')
     for name in install.CONFIG_NAMES:
-        text = ('INFRA_SYNC_COMPOSE_PROJECT=test-project\nUNKNOWN_KEY=preserved\n'
+        text = ('NETBOX_SYNC_COMPOSE_PROJECT=test-project\nUNKNOWN_KEY=preserved\n'
                 if name == 'compose.env' else f'FILE={name}\n')
         path = root / 'config' / name
         path.write_text(text, encoding='utf-8')
@@ -101,9 +103,9 @@ def _fake_xattr(path, name, **_kwargs):
     if 'secrets/sources/' not in Path(path).as_posix():
         raise OSError('not a broker file')
     return {
-        'user.infra_sync.operation': b'operation-do-not-disclose',
-        'user.infra_sync.receipt': b'receipt-do-not-disclose',
-        'user.infra_sync.complete': b'1',
+        'user.netbox_sync.operation': b'operation-do-not-disclose',
+        'user.netbox_sync.receipt': b'receipt-do-not-disclose',
+        'user.netbox_sync.complete': b'1',
     }[name]
 
 
@@ -129,7 +131,8 @@ def bundle_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(backup, '_tar_create', _portable_tar)
     monkeypatch.setattr(backup, 'Maintenance', lambda *_args, **_kwargs: nullcontext())
     monkeypatch.setattr(backup.os, 'listxattr',
-                        lambda *_args, **_kwargs: list(backup.BROKER_XATTRS), raising=False)
+                        lambda *_args, **_kwargs: list(backup.BROKER_XATTR_SETS[0]),
+                        raising=False)
     monkeypatch.setattr(backup.os, 'getxattr', _fake_xattr, raising=False)
     return root, FakeDatabase()
 
@@ -138,7 +141,7 @@ def test_backup_bundle_is_versioned_complete_and_preserves_unknown_config(bundle
     root, database = bundle_setup
     created = dt.datetime(2026, 9, 6, 12, 0, tzinfo=dt.timezone.utc)
     bundle = backup.create_backup(root, root / 'backups', database, now=created)
-    assert bundle.name == 'infra-sync-backup-20260906-120000'
+    assert bundle.name == 'netbox-sync-backup-20260906-120000'
     assert set(path.name for path in bundle.iterdir()) == {
         'database.dump', 'state.tar', 'manifest.json', 'checksums.sha256', 'COMPLETE'}
     if os.name == 'posix':
@@ -163,7 +166,7 @@ def test_manifest_never_contains_secret_or_broker_receipt(bundle_setup):
     assert 'receipt-do-not-disclose' not in manifest
     source = next(item for item in json.loads(manifest)['files']
                   if item['path'] == 'secrets/sources/source-token')
-    assert set(source['xattrs']) == set(backup.BROKER_XATTRS)
+    assert set(source['xattrs']) == set(backup.BROKER_XATTR_SETS[0])
     assert all(value.startswith('sha256:') for value in source['xattrs'].values())
 
 
@@ -180,9 +183,24 @@ def test_unmanaged_source_secret_without_broker_xattrs_is_preserved(bundle_setup
 def test_partial_broker_xattr_set_fails_closed(bundle_setup, monkeypatch):
     root, database = bundle_setup
     monkeypatch.setattr(backup.os, 'listxattr',
-                        lambda *_args, **_kwargs: ['user.infra_sync.operation'])
+                        lambda *_args, **_kwargs: ['user.netbox_sync.operation'])
     with pytest.raises(backup.BackupError, match='xattrs are incomplete'):
         backup.create_backup(root, root / 'backups', database)
+
+
+def test_legacy_broker_xattr_set_remains_backup_compatible(bundle_setup, monkeypatch):
+    root, database = bundle_setup
+    legacy = backup.BROKER_XATTR_SETS[1]
+    values = dict(zip(legacy, (b'operation-do-not-disclose',
+                               b'receipt-do-not-disclose', b'1')))
+    monkeypatch.setattr(backup.os, 'listxattr', lambda *_args, **_kwargs: list(legacy))
+    monkeypatch.setattr(backup.os, 'getxattr',
+                        lambda _path, name, **_kwargs: values[name])
+    bundle = backup.create_backup(root, root / 'backups', database)
+    manifest = backup.verify_bundle(bundle, database)
+    source = next(item for item in manifest['files']
+                  if item['path'] == 'secrets/sources/source-token')
+    assert set(source['xattrs']) == set(legacy)
 
 
 def test_checksum_corruption_is_rejected_before_database_validation(bundle_setup):
@@ -225,7 +243,7 @@ def test_failed_dump_never_publishes_or_marks_bundle_complete(bundle_setup):
     database.dump = fail
     with pytest.raises(backup.BackupError):
         backup.create_backup(root, root / 'backups', database)
-    assert not list((root / 'backups').glob('infra-sync-backup-*'))
+    assert not list((root / 'backups').glob('netbox-sync-backup-*'))
     assert not list((root / 'backups').glob('.*.tmp-*'))
 
 
@@ -291,7 +309,7 @@ def test_fresh_restore_replaces_state_and_runs_provisioning_in_order(
     bundle = backup.create_backup(source, source / 'backups', database)
     target = _layout(tmp_path / 'target')
     (target / 'config/compose.env').write_text(
-        'INFRA_SYNC_COMPOSE_PROJECT=target-before-restore\n', encoding='utf-8')
+        'NETBOX_SYNC_COMPOSE_PROJECT=target-before-restore\n', encoding='utf-8')
     stages = []
     monkeypatch.setattr(backup, 'Maintenance', lambda *_args, **_kwargs: nullcontext())
     monkeypatch.setattr(backup, '_require_gnu_tar', lambda: None)
@@ -309,14 +327,57 @@ def test_fresh_restore_replaces_state_and_runs_provisioning_in_order(
     backup.restore_fresh(target, bundle, database, no_systemd=True)
     assert database.restore_calls == 1
     assert stages == [
-        'infra-sync-migrate', 'infra-sync-db-grants', 'infra-sync-db-restore-roles',
+        'netbox-sync-migrate', 'netbox-sync-db-grants', 'netbox-sync-db-restore-roles',
         'runtime-health']
     assert 'UNKNOWN_KEY=preserved' in (target / 'config/compose.env').read_text(
         encoding='utf-8')
-    assert 'INFRA_SYNC_COMPOSE_PROJECT=target-before-restore' in (
+    assert 'NETBOX_SYNC_COMPOSE_PROJECT=target-before-restore' in (
         target / 'config/compose.env').read_text(encoding='utf-8')
     assert (target / 'secrets/sources/source-token').read_text(
         encoding='utf-8').strip() == 'not-a-real-source-secret'
+
+
+def test_legacy_bundle_environment_is_translated_before_database_restore(
+        bundle_setup, monkeypatch, tmp_path):
+    source, database = bundle_setup
+    bundle = backup.create_backup(source, source / 'backups', database)
+    target = _layout(tmp_path / 'target')
+    original_manifest = backup.verify_bundle(bundle, database)
+    legacy_manifest = {
+        **original_manifest,
+        'product': backup.LEGACY_PRODUCT,
+        'database_name': backup.LEGACY_DATABASE_NAME,
+        'schema_name': backup.LEGACY_SCHEMA_NAME,
+        'alembic_revision': '0002_sync_run_history',
+    }
+    events = []
+    monkeypatch.setattr(backup, 'verify_bundle', lambda *_args: legacy_manifest)
+    monkeypatch.setattr(backup, '_require_gnu_tar', lambda: None)
+    monkeypatch.setattr(backup, '_validate_restored_files', lambda *_args: None)
+    monkeypatch.setattr(backup, 'Maintenance', lambda *_args, **_kwargs: nullcontext())
+
+    def extract(_archive, destination):
+        _layout(destination)
+        (destination / 'config/compose.env').write_text(
+            'INFRA_SYNC_COMPOSE_PROJECT=legacy-project\nOPERATOR_KEY=preserved\n',
+            encoding='utf-8')
+
+    monkeypatch.setattr(backup, '_tar_extract', extract)
+    monkeypatch.setattr(install, 'migrate_legacy_environment',
+                        lambda root, apply=False: events.append(('env', root, apply)) or 1)
+    original_restore = database.restore_fresh
+
+    def restore(dump, maintenance, source_schema=backup.SCHEMA_NAME):
+        events.append(('database', source_schema))
+        return original_restore(dump, maintenance, source_schema)
+
+    database.restore_fresh = restore
+    monkeypatch.setattr(backup, '_run_deployment_tool', lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(backup, '_start_restored_runtime', lambda *_args: None)
+    backup.restore_fresh(target, bundle, database, no_systemd=True)
+    assert events[0][0] == 'env'
+    assert events[0][2] is True
+    assert events[1] == ('database', backup.LEGACY_SCHEMA_NAME)
 
 
 def test_restore_role_passwords_changes_bootstrap_last(monkeypatch, tmp_path):
@@ -326,7 +387,7 @@ def test_restore_role_passwords_changes_bootstrap_last(monkeypatch, tmp_path):
         (secret_root / filename).write_text('restored-runtime\n', encoding='utf-8')
     (secret_root / deployment.RESTORE_BOOTSTRAP_FILE).write_text(
         'restored-bootstrap\n', encoding='utf-8')
-    environment = {'INFRA_SYNC_DB_PASSWORD_DIR': str(secret_root)}
+    environment = {'NETBOX_SYNC_DB_PASSWORD_DIR': str(secret_root)}
     calls = []
 
     class Cursor:
@@ -366,7 +427,7 @@ def test_bootstrap_password_rotation_preserves_privileged_role_attributes():
     deployment._rotate_bootstrap_password(  # pylint: disable=protected-access
         Cursor(), 'not-a-real-password')
     assert statements == [
-        "ALTER ROLE \"infra_sync_bootstrap\" WITH LOGIN PASSWORD "
+        "ALTER ROLE \"netbox_sync_bootstrap\" WITH LOGIN PASSWORD "
         "'not-a-real-password'"
     ]
     assert 'NOSUPERUSER' not in statements[0]
@@ -381,23 +442,23 @@ def test_database_tool_never_places_external_dsn_in_argv(monkeypatch, tmp_path):
 
     monkeypatch.setattr(backup.shutil, 'which', lambda _name: '/usr/bin/tool')
     monkeypatch.setattr(backup.subprocess, 'run', fake_run)
-    literal = 'postgresql://operator:secret@example/infra_sync_backup_test'
-    tool = backup.DatabaseTool(tmp_path, 'external', {'INFRA_SYNC_BACKUP_DSN': literal})
+    literal = 'postgresql://operator:secret@example/netbox_sync_backup_test'
+    tool = backup.DatabaseTool(tmp_path, 'external', {'NETBOX_SYNC_BACKUP_DSN': literal})
     assert tool.postgres_major() == 16
     command, environment = observed[0]
     assert literal not in ' '.join(command)
     assert literal not in environment.values()
     assert environment['PGHOST'] == 'example'
-    assert environment['PGDATABASE'] == 'infra_sync_backup_test'
+    assert environment['PGDATABASE'] == 'netbox_sync_backup_test'
     assert environment['PGUSER'] == 'operator'
     assert environment['PGPASSWORD'] == 'secret'
-    assert 'INFRA_SYNC_BACKUP_DSN' not in environment
+    assert 'NETBOX_SYNC_BACKUP_DSN' not in environment
 
 
 def test_external_restore_selects_database_without_exposing_dsn(monkeypatch, tmp_path):
     observed = []
-    literal = 'postgresql://operator:secret@example/infra_sync_backup_test'
-    tool = backup.DatabaseTool(tmp_path, 'external', {'INFRA_SYNC_BACKUP_DSN': literal})
+    literal = 'postgresql://operator:secret@example/netbox_sync_backup_test'
+    tool = backup.DatabaseTool(tmp_path, 'external', {'NETBOX_SYNC_BACKUP_DSN': literal})
     monkeypatch.setattr(
         tool, '_run',
         lambda executable, arguments, **kwargs: observed.append(
@@ -406,7 +467,7 @@ def test_external_restore_selects_database_without_exposing_dsn(monkeypatch, tmp
     tool.restore(tmp_path / 'database.dump')
 
     arguments = observed[0][1]
-    assert arguments[-2:] == ('--dbname', 'infra_sync_backup_test')
+    assert arguments[-2:] == ('--dbname', 'netbox_sync_backup_test')
     assert literal not in ' '.join(arguments)
 
 
@@ -436,14 +497,35 @@ def test_fresh_database_restore_requires_live_maintenance_boundary(monkeypatch,
     assert [entry[0] for entry in observed] == ['psql', 'pg_restore']
     cleanup = observed[0][1][-1]
     assert cleanup == (
-        'DROP TABLE IF EXISTS infra_sync.sync_runs; '
-        'DROP TABLE IF EXISTS infra_sync.sources; '
-        'DROP TABLE IF EXISTS infra_sync.schema_meta; '
-        'DROP TABLE IF EXISTS infra_sync.alembic_version; '
-        'DROP SCHEMA infra_sync')
+        'DROP TABLE IF EXISTS netbox_sync.sync_runs; '
+        'DROP TABLE IF EXISTS netbox_sync.sources; '
+        'DROP TABLE IF EXISTS netbox_sync.schema_meta; '
+        'DROP TABLE IF EXISTS netbox_sync.alembic_version; '
+        'DROP SCHEMA netbox_sync')
     assert 'CASCADE' not in cleanup
     assert observed[1][2]['input_file'] == tmp_path / 'database.dump'
     assert '--clean' not in observed[1][1]
+
+
+def test_fresh_restore_converts_verified_legacy_schema_without_cascade(monkeypatch,
+                                                                       tmp_path):
+    observed = []
+    tool = backup.DatabaseTool(tmp_path)
+    monkeypatch.setattr(tool, 'validate_foundation_target', lambda: None)
+    monkeypatch.setattr(tool, 'target_counts', lambda: (0, 0))
+    monkeypatch.setattr(tool, '_run', lambda executable, arguments, **kwargs:
+                        observed.append((executable, arguments, kwargs)))
+
+    class Boundary:
+        @staticmethod
+        def authorizes_fresh_restore(root, mode):
+            return root == tmp_path and mode == 'bundled'
+
+    tool.restore_fresh(
+        tmp_path / 'database.dump', Boundary(), source_schema='infra_sync')
+    assert [item[0] for item in observed] == ['psql', 'pg_restore', 'psql']
+    assert observed[-1][1][-1] == 'ALTER SCHEMA infra_sync RENAME TO netbox_sync'
+    assert all('CASCADE' not in ' '.join(item[1]) for item in observed)
 
 
 def test_bundle_inspection_is_allowlisted(bundle_setup):
@@ -458,18 +540,18 @@ def test_bundle_inspection_is_allowlisted(bundle_setup):
 
 def test_compose_has_restore_role_tool_but_runtime_services_receive_no_credentials():
     compose = (ROOT / 'compose.production.yml').read_text(encoding='utf-8')
-    assert 'infra-sync-db-restore-roles:' in compose
-    restore = compose.split('  infra-sync-db-restore-roles:', 1)[1].split('\nvolumes:', 1)[0]
+    assert 'netbox-sync-db-restore-roles:' in compose
+    restore = compose.split('  netbox-sync-db-restore-roles:', 1)[1].split('\nvolumes:', 1)[0]
     assert 'restore-role-passwords' in restore
-    assert 'INFRA_SYNC_RESTORE_PASSWORD_DIR' in restore
-    api = compose.split('  infra-sync-api:', 1)[1].split('  infra-sync-secret-broker:', 1)[0]
+    assert 'NETBOX_SYNC_RESTORE_PASSWORD_DIR' in restore
+    api = compose.split('  netbox-sync-api:', 1)[1].split('  netbox-sync-secret-broker:', 1)[0]
     assert 'RESTORE_PASSWORD' not in api
 
 
 def test_backup_scope_excludes_runtime_and_release_payloads():
     assert backup.STATE_DIRS == ('config', 'secrets')
     source = (ROOT / 'deploy/backup.py').read_text(encoding='utf-8')
-    for excluded in ('/run/infra-sync-broker', 'node_modules', 'docker.sock'):
+    for excluded in ('/run/netbox-sync-broker', 'node_modules', 'docker.sock'):
         assert excluded not in source
 
 
@@ -490,7 +572,7 @@ def test_maintenance_restores_prior_services_and_timer(monkeypatch, tmp_path):
     def run(command, **_kwargs):
         calls.append(tuple(command))
         if command[:4] == ['ps', '--status', 'running', '--services']:
-            return SimpleNamespace(stdout='infra-sync-api\ninfra-sync-apply-worker\n')
+            return SimpleNamespace(stdout='netbox-sync-api\nnetbox-sync-apply-worker\n')
         return SimpleNamespace(stdout='', returncode=0)
 
     monkeypatch.setattr(install, 'run', run)
@@ -498,8 +580,8 @@ def test_maintenance_restores_prior_services_and_timer(monkeypatch, tmp_path):
         calls.append('inside')
     assert calls.index('timer-stop') < calls.index('lock-enter') < calls.index('inside')
     assert ('stop', *backup.MAINTENANCE_SERVICES) in calls
-    assert ('up', '-d', 'infra-sync-api', 'infra-sync-apply-worker') in calls
-    assert ('systemctl', 'start', 'infra-netbox-sync.timer') in calls
+    assert ('up', '-d', 'netbox-sync-api', 'netbox-sync-apply-worker') in calls
+    assert ('systemctl', 'start', 'netbox-sync.timer') in calls
     assert calls[-1] == 'lock-exit'
 
 
@@ -514,7 +596,7 @@ def test_restore_maintenance_never_restarts_writers_or_timer(monkeypatch, tmp_pa
     with backup.Maintenance(tmp_path, restore_after=False):
         pass
     assert not any(call[:2] == ('up', '-d') for call in calls)
-    assert ('systemctl', 'start', 'infra-netbox-sync.timer') not in calls
+    assert ('systemctl', 'start', 'netbox-sync.timer') not in calls
 
 
 def test_backup_lock_failure_restores_previous_timer_state(monkeypatch, tmp_path):
@@ -535,7 +617,7 @@ def test_backup_lock_failure_restores_previous_timer_state(monkeypatch, tmp_path
         with backup.Maintenance(tmp_path, restore_after=True):
             pass
     assert 'unexpected-exit' not in calls
-    assert ('systemctl', 'start', 'infra-netbox-sync.timer') in calls
+    assert ('systemctl', 'start', 'netbox-sync.timer') in calls
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='Linux xattr and GNU tar contract')
@@ -549,7 +631,8 @@ def test_gnu_tar_round_trip_preserves_mode_owner_and_broker_xattrs(tmp_path):
         secret = source / 'secrets/sources/token'
         secret.write_text('not-a-real-secret\n', encoding='utf-8')
         secret.chmod(0o600)
-        for name, value in zip(backup.BROKER_XATTRS, (b'op', b'receipt', b'1')):
+        current_xattrs = backup.BROKER_XATTR_SETS[0]
+        for name, value in zip(current_xattrs, (b'op', b'receipt', b'1')):
             os.setxattr(secret, name, value, follow_symlinks=False)
     except (AttributeError, OSError, backup.BackupError) as exc:
         pytest.skip(f'xattrs unavailable: {exc}')
@@ -563,7 +646,7 @@ def test_gnu_tar_round_trip_preserves_mode_owner_and_broker_xattrs(tmp_path):
     assert (restored.stat().st_uid, restored.stat().st_gid) == (
         secret.stat().st_uid, secret.stat().st_gid)
     assert [os.getxattr(restored, name, follow_symlinks=False)
-            for name in backup.BROKER_XATTRS] == [b'op', b'receipt', b'1']
+            for name in current_xattrs] == [b'op', b'receipt', b'1']
 
 
 def test_captured_operator_failure_never_contains_secret(monkeypatch, capsys):

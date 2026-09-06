@@ -5,12 +5,12 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "netbox-pve-sync"
+name = "netbox-sync"
 version = "0.2.4"
 authors = [
     { name = "Aloïs Micard", email = "alois@micard.lu" },
 ]
-description = "Synchronize Proxmox Virtual Environment (PVE) information to a NetBox instance"
+description = "Safely synchronize multiple virtualization sources to NetBox"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -30,18 +30,18 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/CloseName/infra-sync"
-Issues = "https://github.com/CloseName/infra-sync/issues"
-Changelog = "https://github.com/CloseName/infra-sync/blob/main/Changelog.md"
+Homepage = "https://github.com/CloseName/netbox-sync"
+Issues = "https://github.com/CloseName/netbox-sync/issues"
+Changelog = "https://github.com/CloseName/netbox-sync/blob/main/Changelog.md"
 
 [project.optional-dependencies]
 web = ["fastapi>=0.115,<1", "pydantic>=2.10,<3", "uvicorn>=0.34,<1"]
 
 [project.scripts]
-nbpxsync = "netbox_pve_sync:main"
+netbox-sync = "netbox_sync:main"
 
 [tool.setuptools.packages.find]
-include = ["netbox_pve_sync*"]
+include = ["netbox_sync*"]
 
 [license]
 file = 'LICENSE.txt'

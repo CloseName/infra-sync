@@ -7,16 +7,16 @@ import pytest
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
-from netbox_pve_sync.schedule_worker import ScheduleStore, ScheduleWorkerError
-from netbox_pve_sync.source_registry import SourceRegistry
+from netbox_sync.schedule_worker import ScheduleStore, ScheduleWorkerError
+from netbox_sync.source_registry import SourceRegistry
 from tests.sample_data import sample_source_config
 from tests.test_source_registry_postgres import _safe_test_dsn
 
 
 def test_schedule_writer_column_privileges_and_optimistic_update():
     dsn = _safe_test_dsn()
-    schema = 'infra_sync_test_' + uuid.uuid4().hex
-    role = 'infra_sync_schedule_' + uuid.uuid4().hex
+    schema = 'netbox_sync_test_' + uuid.uuid4().hex
+    role = 'netbox_sync_schedule_' + uuid.uuid4().hex
     registry = SourceRegistry(lambda: psycopg.connect(dsn), schema)
     registry.initialize()
     registry.create_source(sample_source_config())

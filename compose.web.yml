@@ -1,34 +1,34 @@
 # Opt-in extension of the same Compose project. Also runnable by itself for development.
 services:
-  infra-sync-api:
+  netbox-sync-api:
     profiles: [web]
     build:
       context: .
       dockerfile: Dockerfile.web
     ports:
-      - "127.0.0.1:${INFRA_SYNC_WEB_PORT:-8000}:8000"
+      - "127.0.0.1:${NETBOX_SYNC_WEB_PORT:-8000}:8000"
     environment:
-      INFRA_SYNC_REGISTRY_DSN: ${INFRA_SYNC_REGISTRY_DSN:-}
-      INFRA_SYNC_REGISTRY_SCHEMA: ${INFRA_SYNC_REGISTRY_SCHEMA:-}
+      NETBOX_SYNC_REGISTRY_DSN: ${NETBOX_SYNC_REGISTRY_DSN:-}
+      NETBOX_SYNC_REGISTRY_SCHEMA: ${NETBOX_SYNC_REGISTRY_SCHEMA:-}
       NB_API_URL: ${NB_API_URL:-}
       # Presence only. Do not mount/read NetBox or source secrets in the API.
       NB_API_TOKEN_FILE: ${NB_API_TOKEN_FILE:-}
-      INFRA_SYNC_REGISTRATION_DSN: ${INFRA_SYNC_REGISTRATION_DSN:-}
-      INFRA_SYNC_BROKER_SOCKET: /run/infra-sync-broker/broker.sock
-      INFRA_SYNC_DISCOVERY_SOCKET: /run/infra-sync-discovery/worker.sock
-      INFRA_SYNC_APPLY_SOCKET: /run/infra-sync-apply/worker.sock
-      INFRA_SYNC_SCHEDULE_SOCKET: /run/infra-sync-schedule/worker.sock
-      INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS: ${INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS:-7200}
-      INFRA_SYNC_WRITE_HOSTS: ${INFRA_SYNC_WRITE_HOSTS:-127.0.0.1:8000,localhost:8000}
-      INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS: ${INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS:-}
-      INFRA_SYNC_ONBOARDING_DENIED_CIDRS: ${INFRA_SYNC_ONBOARDING_DENIED_CIDRS:-}
-      INFRA_SYNC_ONBOARDING_ALLOWED_HOSTS: ${INFRA_SYNC_ONBOARDING_ALLOWED_HOSTS:-}
-      INFRA_SYNC_ONBOARDING_ALLOWED_SUFFIXES: ${INFRA_SYNC_ONBOARDING_ALLOWED_SUFFIXES:-}
+      NETBOX_SYNC_REGISTRATION_DSN: ${NETBOX_SYNC_REGISTRATION_DSN:-}
+      NETBOX_SYNC_BROKER_SOCKET: /run/netbox-sync-broker/broker.sock
+      NETBOX_SYNC_DISCOVERY_SOCKET: /run/netbox-sync-discovery/worker.sock
+      NETBOX_SYNC_APPLY_SOCKET: /run/netbox-sync-apply/worker.sock
+      NETBOX_SYNC_SCHEDULE_SOCKET: /run/netbox-sync-schedule/worker.sock
+      NETBOX_SYNC_DIAGNOSTICS_STALE_SECONDS: ${NETBOX_SYNC_DIAGNOSTICS_STALE_SECONDS:-7200}
+      NETBOX_SYNC_WRITE_HOSTS: ${NETBOX_SYNC_WRITE_HOSTS:-127.0.0.1:8000,localhost:8000}
+      NETBOX_SYNC_ONBOARDING_ALLOWED_CIDRS: ${NETBOX_SYNC_ONBOARDING_ALLOWED_CIDRS:-}
+      NETBOX_SYNC_ONBOARDING_DENIED_CIDRS: ${NETBOX_SYNC_ONBOARDING_DENIED_CIDRS:-}
+      NETBOX_SYNC_ONBOARDING_ALLOWED_HOSTS: ${NETBOX_SYNC_ONBOARDING_ALLOWED_HOSTS:-}
+      NETBOX_SYNC_ONBOARDING_ALLOWED_SUFFIXES: ${NETBOX_SYNC_ONBOARDING_ALLOWED_SUFFIXES:-}
     volumes:
-      - infra-sync-broker-socket:/run/infra-sync-broker:ro
-      - infra-sync-discovery-socket:/run/infra-sync-discovery:ro
-      - infra-sync-apply-socket:/run/infra-sync-apply:ro
-      - infra-sync-schedule-socket:/run/infra-sync-schedule:ro
+      - netbox-sync-broker-socket:/run/netbox-sync-broker:ro
+      - netbox-sync-discovery-socket:/run/netbox-sync-discovery:ro
+      - netbox-sync-apply-socket:/run/netbox-sync-apply:ro
+      - netbox-sync-schedule-socket:/run/netbox-sync-schedule:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -41,45 +41,45 @@ services:
       retries: 3
       start_period: 10s
 
-  infra-sync-secret-broker:
+  netbox-sync-secret-broker:
     profiles: [onboarding]
     build:
       context: .
       dockerfile: Dockerfile.web
     user: "0:0"
     group_add: ["10001"]
-    command: [python, -m, netbox_pve_sync.secret_broker, --socket, /run/infra-sync-broker/broker.sock,
-              --secret-root, /var/lib/infra-sync/source-secrets, --allowed-uid, "10001"]
+    command: [python, -m, netbox_sync.secret_broker, --socket, /run/netbox-sync-broker/broker.sock,
+              --secret-root, /var/lib/netbox-sync/source-secrets, --allowed-uid, "10001"]
     network_mode: none
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     volumes:
-      - infra-sync-broker-socket:/run/infra-sync-broker
-      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/var/lib/infra-sync/source-secrets
+      - netbox-sync-broker-socket:/run/netbox-sync-broker
+      - ${NETBOX_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/var/lib/netbox-sync/source-secrets
     restart: unless-stopped
 
-  infra-sync-discovery-worker:
+  netbox-sync-discovery-worker:
     profiles: [discovery]
     build:
       context: .
       dockerfile: Dockerfile.web
     user: "0:0"
-    command: [python, -m, netbox_pve_sync.discovery_worker,
-              --socket, /run/infra-sync-discovery/worker.sock,
-              --secret-root, /run/secrets/infra-sync,
-              --source-secret-root, /run/secrets/infra-sync-sources,
+    command: [python, -m, netbox_sync.discovery_worker,
+              --socket, /run/netbox-sync-discovery/worker.sock,
+              --secret-root, /run/secrets/netbox-sync,
+              --source-secret-root, /run/secrets/netbox-sync-sources,
               --netbox-token-file, /run/secrets/netbox-read-token,
               --api-uid, "10001", --child-uid, "10001", --child-gid, "10001"]
     environment:
-      INFRA_SYNC_DISCOVERY_REGISTRY_DSN: ${INFRA_SYNC_DISCOVERY_REGISTRY_DSN:-}
-      INFRA_SYNC_REGISTRY_SCHEMA: ${INFRA_SYNC_REGISTRY_SCHEMA:-}
-      INFRA_SYNC_DISCOVERY_NB_API_URL: ${INFRA_SYNC_DISCOVERY_NB_API_URL:-}
+      NETBOX_SYNC_DISCOVERY_REGISTRY_DSN: ${NETBOX_SYNC_DISCOVERY_REGISTRY_DSN:-}
+      NETBOX_SYNC_REGISTRY_SCHEMA: ${NETBOX_SYNC_REGISTRY_SCHEMA:-}
+      NETBOX_SYNC_DISCOVERY_NB_API_URL: ${NETBOX_SYNC_DISCOVERY_NB_API_URL:-}
     volumes:
-      - infra-sync-discovery-socket:/run/infra-sync-discovery
-      - ${INFRA_SYNC_LEGACY_SOURCE_SECRET_DIR:-../secrets/legacy-sources}:/run/secrets/infra-sync:ro
-      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/run/secrets/infra-sync-sources:ro
-      - ${INFRA_SYNC_DISCOVERY_NB_TOKEN_FILE:-../secrets/netbox_discovery_token}:/run/secrets/netbox-read-token:ro
+      - netbox-sync-discovery-socket:/run/netbox-sync-discovery
+      - ${NETBOX_SYNC_LEGACY_SOURCE_SECRET_DIR:-../secrets/legacy-sources}:/run/secrets/netbox-sync:ro
+      - ${NETBOX_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/run/secrets/netbox-sync-sources:ro
+      - ${NETBOX_SYNC_DISCOVERY_NB_TOKEN_FILE:-../secrets/netbox_discovery_token}:/run/secrets/netbox-read-token:ro
     networks: [netbox]
     read_only: true
     tmpfs: [/tmp]
@@ -88,30 +88,30 @@ services:
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
 
-  infra-sync-apply-worker:
+  netbox-sync-apply-worker:
     profiles: [apply]
     build:
       context: .
       dockerfile: Dockerfile.web
     user: "0:0"
-    command: [python, -m, netbox_pve_sync.apply_worker,
-              --socket, /run/infra-sync-apply/worker.sock,
-              --secret-root, /run/secrets/infra-sync,
-              --source-secret-root, /run/secrets/infra-sync-sources,
+    command: [python, -m, netbox_sync.apply_worker,
+              --socket, /run/netbox-sync-apply/worker.sock,
+              --secret-root, /run/secrets/netbox-sync,
+              --source-secret-root, /run/secrets/netbox-sync-sources,
               --netbox-token-file, /run/secrets/netbox-apply-token,
-              --lock-path, /run/infra-sync-lock/apply.lock,
+              --lock-path, /run/netbox-sync-lock/apply.lock,
               --api-uid, "10001", --child-uid, "10001", --child-gid, "10001"]
     environment:
-      INFRA_SYNC_APPLY_REGISTRY_DSN: ${INFRA_SYNC_APPLY_REGISTRY_DSN:-}
-      INFRA_SYNC_RUN_WRITER_DSN: ${INFRA_SYNC_RUN_WRITER_DSN:-}
-      INFRA_SYNC_REGISTRY_SCHEMA: ${INFRA_SYNC_REGISTRY_SCHEMA:-}
-      INFRA_SYNC_APPLY_NB_API_URL: ${INFRA_SYNC_APPLY_NB_API_URL:-}
+      NETBOX_SYNC_APPLY_REGISTRY_DSN: ${NETBOX_SYNC_APPLY_REGISTRY_DSN:-}
+      NETBOX_SYNC_RUN_WRITER_DSN: ${NETBOX_SYNC_RUN_WRITER_DSN:-}
+      NETBOX_SYNC_REGISTRY_SCHEMA: ${NETBOX_SYNC_REGISTRY_SCHEMA:-}
+      NETBOX_SYNC_APPLY_NB_API_URL: ${NETBOX_SYNC_APPLY_NB_API_URL:-}
     volumes:
-      - infra-sync-apply-socket:/run/infra-sync-apply
-      - ${INFRA_SYNC_APPLY_LOCK_DIR:-/run/infra-sync}:/run/infra-sync-lock
-      - ${INFRA_SYNC_LEGACY_SOURCE_SECRET_DIR:-../secrets/legacy-sources}:/run/secrets/infra-sync:ro
-      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/run/secrets/infra-sync-sources:ro
-      - ${INFRA_SYNC_APPLY_NB_TOKEN_FILE:-../secrets/netbox_web_apply_token}:/run/secrets/netbox-apply-token:ro
+      - netbox-sync-apply-socket:/run/netbox-sync-apply
+      - ${NETBOX_SYNC_APPLY_LOCK_DIR:-/run/netbox-sync}:/run/netbox-sync-lock
+      - ${NETBOX_SYNC_LEGACY_SOURCE_SECRET_DIR:-../secrets/legacy-sources}:/run/secrets/netbox-sync:ro
+      - ${NETBOX_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/run/secrets/netbox-sync-sources:ro
+      - ${NETBOX_SYNC_APPLY_NB_TOKEN_FILE:-../secrets/netbox_web_apply_token}:/run/secrets/netbox-apply-token:ro
     networks: [netbox]
     read_only: true
     tmpfs: [/tmp]
@@ -120,19 +120,19 @@ services:
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
 
-  infra-sync-schedule-worker:
+  netbox-sync-schedule-worker:
     profiles: [schedule]
     build:
       context: .
       dockerfile: Dockerfile.web
     user: "0:0"
-    command: [python, -m, netbox_pve_sync.schedule_worker,
-              --socket, /run/infra-sync-schedule/worker.sock, --api-uid, "10001"]
+    command: [python, -m, netbox_sync.schedule_worker,
+              --socket, /run/netbox-sync-schedule/worker.sock, --api-uid, "10001"]
     environment:
-      INFRA_SYNC_SCHEDULE_WRITER_DSN: ${INFRA_SYNC_SCHEDULE_WRITER_DSN:-}
-      INFRA_SYNC_REGISTRY_SCHEMA: ${INFRA_SYNC_REGISTRY_SCHEMA:-}
+      NETBOX_SYNC_SCHEDULE_WRITER_DSN: ${NETBOX_SYNC_SCHEDULE_WRITER_DSN:-}
+      NETBOX_SYNC_REGISTRY_SCHEMA: ${NETBOX_SYNC_REGISTRY_SCHEMA:-}
     volumes:
-      - infra-sync-schedule-socket:/run/infra-sync-schedule
+      - netbox-sync-schedule-socket:/run/netbox-sync-schedule
     networks: [netbox]
     read_only: true
     tmpfs: [/tmp]
@@ -142,10 +142,10 @@ services:
     restart: unless-stopped
 
 volumes:
-  infra-sync-broker-socket:
-  infra-sync-discovery-socket:
-  infra-sync-apply-socket:
-  infra-sync-schedule-socket:
+  netbox-sync-broker-socket:
+  netbox-sync-discovery-socket:
+  netbox-sync-apply-socket:
+  netbox-sync-schedule-socket:
 
 networks:
   netbox:

@@ -7,11 +7,11 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from netbox_pve_sync.api.app import create_app
-from netbox_pve_sync.api.settings import ApiSettings
-from netbox_pve_sync.application.diagnostics import (DiagnosticStatus, DiagnosticsService,
+from netbox_sync.api.app import create_app
+from netbox_sync.api.settings import ApiSettings
+from netbox_sync.application.diagnostics import (DiagnosticStatus, DiagnosticsService,
                                                       HistorySnapshot)
-from netbox_pve_sync.run_history import ActionCounts, RunStatus, RunTrigger, SyncRun
+from netbox_sync.run_history import ActionCounts, RunStatus, RunTrigger, SyncRun
 
 
 NOW = datetime(2026, 9, 5, 12, tzinfo=timezone.utc)
@@ -190,23 +190,23 @@ def test_diagnostics_api_is_200_with_allowlisted_dto_and_health_stays_lightweigh
 
 def test_diagnostics_adds_no_privileged_api_boundary():
     compose = Path('compose.web.yml').read_text(encoding='utf-8')
-    api = compose.split('  infra-sync-secret-broker:', 1)[0]
-    assert 'INFRA_SYNC_RUN_WRITER_DSN' not in api
-    assert '/run/secrets/infra-sync' not in api
+    api = compose.split('  netbox-sync-secret-broker:', 1)[0]
+    assert 'NETBOX_SYNC_RUN_WRITER_DSN' not in api
+    assert '/run/secrets/netbox-sync' not in api
     assert 'netbox-apply-token' not in api
     assert 'docker.sock' not in compose
     diagnostics_code = ''.join(path.read_text(encoding='utf-8') for path in (
-        Path('netbox_pve_sync/api/app.py'), Path('netbox_pve_sync/api/worker_health.py'),
-        Path('netbox_pve_sync/application/diagnostics.py')))
+        Path('netbox_sync/api/app.py'), Path('netbox_sync/api/worker_health.py'),
+        Path('netbox_sync/application/diagnostics.py')))
     assert not any(value in diagnostics_code for value in (
         'systemctl', 'subprocess.', '/run/systemd', 'docker.sock'))
 
 
 def test_stale_threshold_environment_is_bounded_and_has_safe_default():
     assert ApiSettings.from_environment({
-        'INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS': '900',
+        'NETBOX_SYNC_DIAGNOSTICS_STALE_SECONDS': '900',
     }).diagnostics_stale_seconds == 900
     for value in ('not-a-number', '299', '604801'):
         assert ApiSettings.from_environment({
-            'INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS': value,
+            'NETBOX_SYNC_DIAGNOSTICS_STALE_SECONDS': value,
         }).diagnostics_stale_seconds == 7200

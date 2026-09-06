@@ -12,20 +12,20 @@ from psycopg.conninfo import conninfo_to_dict
 from psycopg.types.json import Jsonb
 
 from deploy import backup
-from netbox_pve_sync import deployment
+from netbox_sync import deployment
 
 
-TEST_DSN = os.environ.get('INFRA_SYNC_BACKUP_TEST_POSTGRES_DSN', '')
+TEST_DSN = os.environ.get('NETBOX_SYNC_BACKUP_TEST_POSTGRES_DSN', '')
 
 
 def _environment(tmp_path):
     if not TEST_DSN:
-        pytest.skip('INFRA_SYNC_BACKUP_TEST_POSTGRES_DSN is not configured')
+        pytest.skip('NETBOX_SYNC_BACKUP_TEST_POSTGRES_DSN is not configured')
     parsed = conninfo_to_dict(TEST_DSN)
-    if parsed.get('dbname') != 'infra_sync_backup_test':
-        pytest.fail('backup integration requires database infra_sync_backup_test')
-    if parsed.get('user') != 'infra_sync_bootstrap':
-        pytest.fail('backup integration requires user infra_sync_bootstrap')
+    if parsed.get('dbname') != 'netbox_sync_backup_test':
+        pytest.fail('backup integration requires database netbox_sync_backup_test')
+    if parsed.get('user') != 'netbox_sync_bootstrap':
+        pytest.fail('backup integration requires user netbox_sync_bootstrap')
     if any(shutil.which(name) is None for name in ('pg_dump', 'pg_restore', 'psql')):
         pytest.skip('compatible PostgreSQL client tools are unavailable')
     root = tmp_path / 'passwords'
@@ -37,17 +37,17 @@ def _environment(tmp_path):
         path.write_text(passwords[key] + '\n', encoding='utf-8')
         path.chmod(0o600)
     return {
-        'INFRA_SYNC_DB_HOST': parsed.get('host', '127.0.0.1'),
-        'INFRA_SYNC_DB_PORT': parsed.get('port', '5432'),
-        'INFRA_SYNC_DB_NAME': parsed['dbname'],
-        'INFRA_SYNC_DB_PASSWORD_DIR': str(root),
-        'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync',
+        'NETBOX_SYNC_DB_HOST': parsed.get('host', '127.0.0.1'),
+        'NETBOX_SYNC_DB_PORT': parsed.get('port', '5432'),
+        'NETBOX_SYNC_DB_NAME': parsed['dbname'],
+        'NETBOX_SYNC_DB_PASSWORD_DIR': str(root),
+        'NETBOX_SYNC_REGISTRY_SCHEMA': 'netbox_sync',
     }
 
 
 def _seed(connection):
     source_sql = """
-        INSERT INTO infra_sync.sources (
+        INSERT INTO netbox_sync.sources (
           id, source_instance, name, source_type, address, enabled, sync_enabled,
           sync_interval_seconds, verify_ssl, site_slug, device_role_slug,
           platform_slug, device_type_slug, cluster_type_slug, cluster_name,
@@ -69,12 +69,12 @@ def _seed(connection):
             'esxi-password', False, Jsonb({'another_unknown_key': 7})))
         started = datetime(2026, 1, 1, tzinfo=timezone.utc)
         cursor.execute(
-            "INSERT INTO infra_sync.sync_runs "
+            "INSERT INTO netbox_sync.sync_runs "
             "(run_id, source_instance, source_type, trigger, started_at, status, created_by) "
             "VALUES (%s, 'pve-backup-test', 'proxmox', 'scheduled', %s, "
             "'RUNNING', 'scheduler')", (uuid.uuid4(), started))
         cursor.execute(
-            "INSERT INTO infra_sync.sync_runs "
+            "INSERT INTO netbox_sync.sync_runs "
             "(run_id, source_instance, source_type, trigger, started_at, finished_at, "
             "duration_ms, status, created_by) VALUES "
             "(%s, 'esxi-backup-test', 'esxi', 'manual', %s, %s, 1000, "
@@ -83,11 +83,11 @@ def _seed(connection):
 
 def _snapshot(connection):
     with connection.cursor() as cursor:
-        cursor.execute('SELECT * FROM infra_sync.sources ORDER BY source_instance')
+        cursor.execute('SELECT * FROM netbox_sync.sources ORDER BY source_instance')
         sources = cursor.fetchall()
-        cursor.execute('SELECT * FROM infra_sync.sync_runs ORDER BY source_instance, run_id')
+        cursor.execute('SELECT * FROM netbox_sync.sync_runs ORDER BY source_instance, run_id')
         runs = cursor.fetchall()
-        cursor.execute('SELECT version_num FROM infra_sync.alembic_version')
+        cursor.execute('SELECT version_num FROM netbox_sync.alembic_version')
         revision = cursor.fetchone()[0]
     return sources, runs, revision
 
@@ -99,7 +99,7 @@ def test_custom_dump_round_trip_preserves_multi_source_and_history(tmp_path):
     with psycopg.connect(deployment.connection_info('bootstrap', environment),
                          autocommit=True) as connection:
         with connection.cursor() as cursor:
-            cursor.execute('DROP SCHEMA IF EXISTS infra_sync CASCADE')
+            cursor.execute('DROP SCHEMA IF EXISTS netbox_sync CASCADE')
     deployment.migrate(environment)
     deployment.apply_grants(environment)
     with psycopg.connect(deployment.connection_info('bootstrap', environment)) as connection:
@@ -108,7 +108,7 @@ def test_custom_dump_round_trip_preserves_multi_source_and_history(tmp_path):
         expected = _snapshot(connection)
 
     tool = backup.DatabaseTool(
-        tmp_path, 'external', {'INFRA_SYNC_BACKUP_DSN': TEST_DSN})
+        tmp_path, 'external', {'NETBOX_SYNC_BACKUP_DSN': TEST_DSN})
     dump = tmp_path / 'database.dump'
     tool.dump(dump)
     tool.verify_dump(dump)
@@ -118,7 +118,7 @@ def test_custom_dump_round_trip_preserves_multi_source_and_history(tmp_path):
     with psycopg.connect(deployment.connection_info('bootstrap', environment),
                          autocommit=True) as connection:
         with connection.cursor() as cursor:
-            cursor.execute('DROP SCHEMA infra_sync CASCADE')
+            cursor.execute('DROP SCHEMA netbox_sync CASCADE')
     deployment.migrate(environment)
     assert tool.target_counts() == (0, 0)
     tool.restore(dump)
@@ -130,8 +130,8 @@ def test_custom_dump_round_trip_preserves_multi_source_and_history(tmp_path):
             cursor.execute(
                 "SELECT pg_get_userbyid(relowner) FROM pg_class c "
                 "JOIN pg_namespace n ON n.oid=c.relnamespace "
-                "WHERE n.nspname='infra_sync' AND relname='sources'")
-            assert cursor.fetchone() == ('infra_sync_owner',)
-            cursor.execute("SELECT has_table_privilege('infra_sync_web_reader', "
-                           "'infra_sync.sync_runs', 'SELECT')")
+                "WHERE n.nspname='netbox_sync' AND relname='sources'")
+            assert cursor.fetchone() == ('netbox_sync_owner',)
+            cursor.execute("SELECT has_table_privilege('netbox_sync_web_reader', "
+                           "'netbox_sync.sync_runs', 'SELECT')")
             assert cursor.fetchone() == (True,)

@@ -3,10 +3,10 @@
 from dataclasses import replace
 from types import SimpleNamespace
 
-from netbox_pve_sync.application.discovery_review import build_esxi_review, build_proxmox_review
-from netbox_pve_sync.esxi_adoption import (AdoptionClassification, AdoptionEvidence,
+from netbox_sync.application.discovery_review import build_esxi_review, build_proxmox_review
+from netbox_sync.esxi_adoption import (AdoptionClassification, AdoptionEvidence,
                                            EsxiAdoptionItem, EsxiAdoptionPlan)
-from netbox_pve_sync.source_identity import SourceIdentity
+from netbox_sync.source_identity import SourceIdentity
 from tests.sample_data import sample_source_config
 
 

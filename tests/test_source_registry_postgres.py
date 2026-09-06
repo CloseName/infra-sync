@@ -9,9 +9,9 @@ import pytest
 from psycopg import errors, sql
 from psycopg.conninfo import conninfo_to_dict
 
-from netbox_pve_sync.source_config import SecretReference, SourceCredentials
-from netbox_pve_sync.source_bootstrap import bootstrap_legacy_source
-from netbox_pve_sync.source_registry import (
+from netbox_sync.source_config import SecretReference, SourceCredentials
+from netbox_sync.source_bootstrap import bootstrap_legacy_source
+from netbox_sync.source_registry import (
     SourceConflictError,
     SourceRecord,
     SourceRegistry,
@@ -20,9 +20,9 @@ from netbox_pve_sync.source_registry import (
 from tests.sample_data import sample_source_config
 
 
-TEST_DSN_VARIABLE = 'INFRA_SYNC_TEST_POSTGRES_DSN'
-TEST_DATABASE_NAME = 'infra_sync_test'
-TEST_SCHEMA_PREFIX = 'infra_sync_test_'
+TEST_DSN_VARIABLE = 'NETBOX_SYNC_TEST_POSTGRES_DSN'
+TEST_DATABASE_NAME = 'netbox_sync_test'
+TEST_SCHEMA_PREFIX = 'netbox_sync_test_'
 FAKE_SECRET = 'FAKE_SECRET_VALUE_DO_NOT_STORE'
 
 
@@ -60,7 +60,7 @@ def _registry_without_database():
     def reject_connection():
         raise AssertionError('validation must happen before database access')
 
-    return SourceRegistry(reject_connection, 'infra_sync_test_validation')
+    return SourceRegistry(reject_connection, 'netbox_sync_test_validation')
 
 
 def test_domain_validation_happens_before_database_access():

@@ -112,7 +112,7 @@ def run_connection_test(credentials, policy=None, popen=subprocess.Popen):
     environ['PYTHONDONTWRITEBYTECODE'] = '1'
     payload = json.dumps({'credentials': asdict(credentials), 'policy': asdict(policy or EgressPolicy())}).encode()
     try:
-        with popen([sys.executable, '-B', '-m', 'netbox_pve_sync.api.connection_probe'],
+        with popen([sys.executable, '-B', '-m', 'netbox_sync.api.connection_probe'],
                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                    env=environ) as process:
             try:

@@ -1,6 +1,6 @@
 """Reusable NetBox target setup for apply characterization tests."""
 
-from netbox_pve_sync.netbox_planner import NetBoxTargetConfig
+from netbox_sync.netbox_planner import NetBoxTargetConfig
 
 from tests.fakes import FakeRecord
 

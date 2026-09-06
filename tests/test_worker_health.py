@@ -4,13 +4,13 @@ import json
 
 import pytest
 
-from netbox_pve_sync.api.worker_health import WorkerHealthClient
-from netbox_pve_sync.apply_worker import ApplyWorkerError
-from netbox_pve_sync.apply_worker import _handle_request as apply_handle
-from netbox_pve_sync.apply_worker import _receive as apply_receive
-from netbox_pve_sync.discovery_worker import WorkerError
-from netbox_pve_sync.discovery_worker import _handle_request as discovery_handle
-from netbox_pve_sync.discovery_worker import _receive as discovery_receive
+from netbox_sync.api.worker_health import WorkerHealthClient
+from netbox_sync.apply_worker import ApplyWorkerError
+from netbox_sync.apply_worker import _handle_request as apply_handle
+from netbox_sync.apply_worker import _receive as apply_receive
+from netbox_sync.discovery_worker import WorkerError
+from netbox_sync.discovery_worker import _handle_request as discovery_handle
+from netbox_sync.discovery_worker import _receive as discovery_receive
 
 
 class ReceiveConnection:

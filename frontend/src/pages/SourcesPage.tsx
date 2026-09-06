@@ -148,7 +148,7 @@ export function SourcesPage() {
       {visibleSyncResult && <p role={visibleSyncResult.kind === 'error' ? 'alert' : 'status'}
         className={visibleSyncResult.kind === 'error' ? 'source-error' : undefined}>{visibleSyncResult.message}</p>}
     </section></>}
-    <p className="intro">Systemd provides a fixed tick; Infra Sync derives each source schedule from persisted scheduled runs.</p>
+    <p className="intro">Systemd provides a fixed tick; NetBox Sync derives each source schedule from persisted scheduled runs.</p>
   </main>;
 }
 

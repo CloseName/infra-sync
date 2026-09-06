@@ -1,0 +1,23 @@
+[Unit]
+Description=NetBox Sync infrastructure synchronization
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/netbox-sync/current
+ExecStartPre=/usr/bin/install -d -m 0750 /run/netbox-sync
+ExecStart=/opt/netbox-sync/current/scripts/run-scheduled-sync.sh
+
+User=root
+Group=root
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/netbox-sync
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=netbox-sync

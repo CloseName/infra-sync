@@ -7,18 +7,18 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from netbox_pve_sync.api.app import create_app
-from netbox_pve_sync.api.connection_probe import classify, probe_esxi, probe_proxmox
-from netbox_pve_sync.api.onboarding_dto import ConnectionRequest, RegistrationRequest
-from netbox_pve_sync.api.settings import ApiSettings
-from netbox_pve_sync.application.onboarding import (
+from netbox_sync.api.app import create_app
+from netbox_sync.api.connection_probe import classify, probe_esxi, probe_proxmox
+from netbox_sync.api.onboarding_dto import ConnectionRequest, RegistrationRequest
+from netbox_sync.api.settings import ApiSettings
+from netbox_sync.application.onboarding import (
     EphemeralOnboardingStore, OnboardingError, PendingCredentials, RegistrationWriteError,
     SecretReceipt, SourceOnboardingService,
 )
-from netbox_pve_sync.application.observability import ErrorCode
+from netbox_sync.application.observability import ErrorCode
 
 SECRET = 'FAKE_CREDENTIAL_NEVER_ECHO'
-HEADERS = {'Origin': 'http://testserver', 'X-Infra-Sync-CSRF': 'same-origin'}
+HEADERS = {'Origin': 'http://testserver', 'X-NetBox-Sync-CSRF': 'same-origin'}
 
 
 class FakeRegistry:
@@ -261,7 +261,7 @@ def test_api_confirmation_and_redaction(caplog):
 
 
 @pytest.mark.parametrize('headers', [{}, {'Origin': 'http://foreign.test'},
-    {'Origin': 'http://testserver', 'X-Infra-Sync-CSRF': 'bad'},
+    {'Origin': 'http://testserver', 'X-NetBox-Sync-CSRF': 'bad'},
     {**HEADERS, 'Sec-Fetch-Site': 'cross-site'}])
 def test_write_forgery_is_rejected(headers):
     with TestClient(create_app(ApiSettings(allowed_write_hosts=('testserver',)))) as client:
@@ -277,8 +277,8 @@ def test_request_repr_and_dump_protect_credentials():
 
 
 def test_legacy_runtime_credential_repr_is_protected():
-    from netbox_pve_sync.secret_resolver import ResolvedSourceCredentials
-    from netbox_pve_sync.source_config import SourceCredentials, SecretReference
+    from netbox_sync.secret_resolver import ResolvedSourceCredentials
+    from netbox_sync.source_config import SourceCredentials, SecretReference
     reference = SecretReference('file', 'logical-key')
     assert SECRET not in repr(SourceCredentials(SECRET, reference, reference))
     assert SECRET not in repr(ResolvedSourceCredentials(SECRET, SECRET, SECRET))

@@ -1,10 +1,10 @@
 """Recording NetBox facade proves exact planning has zero external writes."""
 
-from netbox_pve_sync.application.planning_netbox import PlanningNetBox
-from netbox_pve_sync import netbox_full_apply
-from netbox_pve_sync.netbox_vm_apply import apply_virtual_machines
-from netbox_pve_sync.proxmox_discovery import discover_hosts
-from netbox_pve_sync.esxi_runtime import execute_esxi_runtime
+from netbox_sync.application.planning_netbox import PlanningNetBox
+from netbox_sync import netbox_full_apply
+from netbox_sync.netbox_vm_apply import apply_virtual_machines
+from netbox_sync.proxmox_discovery import discover_hosts
+from netbox_sync.esxi_runtime import execute_esxi_runtime
 from tests.fakes.netbox import FakeNetBox, FakeRecord
 from tests.fakes import FakeProxmox
 from tests.netbox_scenarios import add_target, vm_identity

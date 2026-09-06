@@ -11,14 +11,14 @@ from psycopg.conninfo import make_conninfo
 import pytest
 import sqlalchemy as sa
 
-from netbox_pve_sync.run_history import ActionCounts, RunRepository, RunStatus, RunTrigger
+from netbox_sync.run_history import ActionCounts, RunRepository, RunStatus, RunTrigger
 from tests.test_source_registry_postgres import _safe_test_dsn
 
 
 @pytest.fixture
 def history_database():
     dsn = _safe_test_dsn()
-    schema = 'infra_sync_test_' + uuid.uuid4().hex
+    schema = 'netbox_sync_test_' + uuid.uuid4().hex
     connect = lambda: psycopg.connect(dsn)
     engine = sa.create_engine('postgresql+psycopg://', creator=connect)
     config = Config('alembic.ini')
@@ -102,7 +102,7 @@ def test_diagnostics_queries_return_latest_and_bounded_stale_runs(history_databa
 
 def test_narrow_run_writer_can_only_insert_and_finalize_history(history_database):
     repository, dsn = history_database
-    role = 'infra_sync_test_run_writer_' + uuid.uuid4().hex
+    role = 'netbox_sync_test_run_writer_' + uuid.uuid4().hex
     table = sql.Identifier(repository.schema, 'sync_runs')
     with psycopg.connect(dsn) as connection:
         connection.execute(sql.SQL('CREATE ROLE {} LOGIN').format(sql.Identifier(role)))

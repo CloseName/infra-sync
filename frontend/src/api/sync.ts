@@ -45,7 +45,7 @@ const validPlan = (value: unknown, instance: string): value is SyncPlan => recor
   && Array.isArray(value.items) && value.items.every((item) => record(item) && typeof item.action === 'string' && actions.includes(item.action) && typeof item.name === 'string' && typeof item.object_kind === 'string' && typeof item.external_id === 'string' && typeof item.reason === 'string' && typeof item.reason_code === 'string' && Array.isArray(item.before) && Array.isArray(item.after));
 
 const protectedPost = async (path: string, body: object, signal: AbortSignal) => {
-  try { return await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Infra-Sync-CSRF': 'same-origin' }, credentials: 'same-origin', cache: 'no-store', signal, body: JSON.stringify(body) }); }
+  try { return await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-NetBox-Sync-CSRF': 'same-origin' }, credentials: 'same-origin', cache: 'no-store', signal, body: JSON.stringify(body) }); }
   catch { throw new ManualSyncRequestError(); }
 };
 

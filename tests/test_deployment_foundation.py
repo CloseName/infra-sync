@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from deploy import install
-from netbox_pve_sync import deployment
+from netbox_sync import deployment
 
 
 ROOT = Path(__file__).parents[1]
@@ -37,24 +37,24 @@ def _prepared(root, old_value='old', new_value='new'):
                  else f'CONFIG_FILE={name}\n')
         (staged / name).write_text(value, encoding='utf-8')
     install.activate_release(root, old)
-    return old, install.PreparedDeployment(root, new, staged, 'infra-sync-app:new')
+    return old, install.PreparedDeployment(root, new, staged, 'netbox-sync-app:new')
 
 
 def test_canonical_compose_has_private_bundled_postgres_and_one_app_image():
     text = COMPOSE.read_text(encoding='utf-8')
     assert 'postgres:16-bookworm' in text
-    postgres = text.split('  postgres:', 1)[1].split('  infra-sync-api:', 1)[0]
-    assert 'infra-sync-postgres:/var/lib/postgresql/data' in postgres
+    postgres = text.split('  postgres:', 1)[1].split('  netbox-sync-api:', 1)[0]
+    assert 'netbox-sync-postgres:/var/lib/postgresql/data' in postgres
     assert 'pg_isready' in postgres
     assert 'ports:' not in postgres
     assert 'internal: true' in text
     assert 'x-app: &app' in text
     assert text.count('dockerfile: Dockerfile.web') == 1
     assert 'container_name:' not in text
-    assert 'name: ${INFRA_SYNC_COMPOSE_PROJECT:-infra-sync}' in text
-    for service in ('infra-sync-api', 'infra-sync-discovery-worker',
-                    'infra-sync-apply-worker', 'infra-sync-schedule-worker',
-                    'infra-sync-secret-broker', 'infra-sync-scheduler'):
+    assert 'name: ${NETBOX_SYNC_COMPOSE_PROJECT:-netbox-sync}' in text
+    for service in ('netbox-sync-api', 'netbox-sync-discovery-worker',
+                    'netbox-sync-apply-worker', 'netbox-sync-schedule-worker',
+                    'netbox-sync-secret-broker', 'netbox-sync-scheduler'):
         assert f'  {service}:' in text
 
 
@@ -62,40 +62,40 @@ def test_external_postgres_override_is_explicit_and_optional():
     override = (ROOT / 'compose.external-postgres.yml').read_text(encoding='utf-8')
     assert 'postgres:' in override
     assert 'profiles: [bundled-postgres]' in override
-    assert 'infra-sync-api:' in override and 'infra-sync-egress' in override
-    assert 'infra-sync-schedule-worker:' in override
-    assert 'infra-sync-migrate:' in override
+    assert 'netbox-sync-api:' in override and 'netbox-sync-egress' in override
+    assert 'netbox-sync-schedule-worker:' in override
+    assert 'netbox-sync-migrate:' in override
 
 
 def test_canonical_compose_removes_historical_host_coupling():
     text = COMPOSE.read_text(encoding='utf-8')
     assert 'netbox_default' not in text
     assert 'docker.sock' not in text
-    assert '/app/netbox_pve_sync' not in text
+    assert '/app/netbox_sync' not in text
     assert 'proxmox_token' not in text
     assert 'esxi_infra' not in text
     assert 'legacy-sources' not in text
-    assert '${INFRA_SYNC_SOURCE_SECRET_DIR' in text
+    assert '${NETBOX_SYNC_SOURCE_SECRET_DIR' in text
 
 
 def test_worker_network_and_credential_boundaries_are_preserved():
     text = COMPOSE.read_text(encoding='utf-8')
-    api = text.split('  infra-sync-api:', 1)[1].split('  infra-sync-secret-broker:', 1)[0]
-    broker = text.split('  infra-sync-secret-broker:', 1)[1].split(
-        '  infra-sync-discovery-worker:', 1)[0]
-    discovery = text.split('  infra-sync-discovery-worker:', 1)[1].split(
-        '  infra-sync-apply-worker:', 1)[0]
-    apply = text.split('  infra-sync-apply-worker:', 1)[1].split(
-        '  infra-sync-schedule-worker:', 1)[0]
-    schedule = text.split('  infra-sync-schedule-worker:', 1)[1].split(
-        '  infra-sync-scheduler:', 1)[0]
+    api = text.split('  netbox-sync-api:', 1)[1].split('  netbox-sync-secret-broker:', 1)[0]
+    broker = text.split('  netbox-sync-secret-broker:', 1)[1].split(
+        '  netbox-sync-discovery-worker:', 1)[0]
+    discovery = text.split('  netbox-sync-discovery-worker:', 1)[1].split(
+        '  netbox-sync-apply-worker:', 1)[0]
+    apply = text.split('  netbox-sync-apply-worker:', 1)[1].split(
+        '  netbox-sync-schedule-worker:', 1)[0]
+    schedule = text.split('  netbox-sync-schedule-worker:', 1)[1].split(
+        '  netbox-sync-scheduler:', 1)[0]
     assert 'network_mode: none' in broker
     assert 'cap_add: [CHOWN]' in broker
-    assert 'networks: [infra-sync-db, infra-sync-web]' in api
-    assert 'infra-sync-db, infra-sync-egress' in discovery
-    assert 'infra-sync-db, infra-sync-egress' in apply
-    assert 'networks: [infra-sync-db]' in schedule
-    assert 'infra-sync-egress' not in schedule
+    assert 'networks: [netbox-sync-db, netbox-sync-web]' in api
+    assert 'netbox-sync-db, netbox-sync-egress' in discovery
+    assert 'netbox-sync-db, netbox-sync-egress' in apply
+    assert 'networks: [netbox-sync-db]' in schedule
+    assert 'netbox-sync-egress' not in schedule
     assert 'source-secrets' not in api
     assert 'netbox/apply-token' not in api
     assert 'RUN_WRITER' not in api
@@ -105,14 +105,14 @@ def test_worker_network_and_credential_boundaries_are_preserved():
 def test_root_only_secrets_are_read_only_and_limited_to_required_processes():
     text = COMPOSE.read_text(encoding='utf-8')
     for service, following in (
-            ('infra-sync-scheduler', 'infra-sync-db-roles'),
-            ('infra-sync-db-roles', 'infra-sync-migrate'),
-            ('infra-sync-migrate', 'infra-sync-db-grants')):
+            ('netbox-sync-scheduler', 'netbox-sync-db-roles'),
+            ('netbox-sync-db-roles', 'netbox-sync-migrate'),
+            ('netbox-sync-migrate', 'netbox-sync-db-grants')):
         block = text.split(f'  {service}:', 1)[1].split(f'  {following}:', 1)[0]
         assert 'user: "0:0"' in block
         assert ':ro' in block
-    tools = text.split('  infra-sync-db-roles:', 1)[1]
-    assert '/run/secrets/infra-sync-db:ro' in tools
+    tools = text.split('  netbox-sync-db-roles:', 1)[1]
+    assert '/run/secrets/netbox-sync-db:ro' in tools
 
 
 def test_canonical_compose_renders_without_provider_configuration():
@@ -132,16 +132,16 @@ def shutil_which(name):
 
 
 def test_tracked_systemd_path_has_exactly_one_shared_lock():
-    service = (ROOT / 'deploy/systemd/infra-netbox-sync.service').read_text(encoding='utf-8')
+    service = (ROOT / 'deploy/systemd/netbox-sync.service').read_text(encoding='utf-8')
     wrapper = (ROOT / 'scripts/run-scheduled-sync.sh').read_text(encoding='utf-8')
     combined = service + wrapper
-    assert 'ExecStart=/opt/infra-sync/current/scripts/run-scheduled-sync.sh' in service
+    assert 'ExecStart=/opt/netbox-sync/current/scripts/run-scheduled-sync.sh' in service
     assert combined.count('/usr/bin/flock') == 1
-    assert '/run/infra-sync/apply.lock' in wrapper
+    assert '/run/netbox-sync/apply.lock' in wrapper
     assert '--remove-orphans' not in wrapper
     assert 'compose.production.yml' in wrapper
     assert '--env-file' in wrapper
-    timer = (ROOT / 'deploy/systemd/infra-netbox-sync.timer').read_text(encoding='utf-8')
+    timer = (ROOT / 'deploy/systemd/netbox-sync.timer').read_text(encoding='utf-8')
     assert 'OnUnitActiveSec=60s' in timer
     assert 'AccuracySec=5s' in timer
 
@@ -186,18 +186,18 @@ def test_generated_configuration_is_role_separated_and_idempotent(tmp_path):
     for relative in ('config', 'secrets/infrastructure', 'secrets/sources',
                      'secrets/netbox'):
         (tmp_path / relative).mkdir(parents=True, exist_ok=True)
-    install.generate_configuration(tmp_path, 'infra-sync-app:test-release')
+    install.generate_configuration(tmp_path, 'netbox-sync-app:test-release')
     owner = (tmp_path / 'secrets/infrastructure/owner_password').read_bytes()
-    install.generate_configuration(tmp_path, 'infra-sync-app:test-release')
+    install.generate_configuration(tmp_path, 'netbox-sync-app:test-release')
     assert (tmp_path / 'secrets/infrastructure/owner_password').read_bytes() == owner
     api = (tmp_path / 'config/api.env').read_text(encoding='utf-8')
     discovery = (tmp_path / 'config/discovery.env').read_text(encoding='utf-8')
     apply = (tmp_path / 'config/apply.env').read_text(encoding='utf-8')
     schedule = (tmp_path / 'config/schedule.env').read_text(encoding='utf-8')
-    assert 'infra_sync_web_reader' in api and 'infra_sync_registration_writer' in api
-    assert 'infra_sync_discovery_reader' in discovery
-    assert 'infra_sync_apply_registry_reader' in apply and 'infra_sync_run_writer' in apply
-    assert 'infra_sync_schedule_writer' in schedule
+    assert 'netbox_sync_web_reader' in api and 'netbox_sync_registration_writer' in api
+    assert 'netbox_sync_discovery_reader' in discovery
+    assert 'netbox_sync_apply_registry_reader' in apply and 'netbox_sync_run_writer' in apply
+    assert 'netbox_sync_schedule_writer' in schedule
     assert 'PVE_' not in api + discovery + apply + schedule
 
 
@@ -205,26 +205,26 @@ def test_repeated_configuration_preserves_operator_values_and_adds_missing_keys(
     for relative in ('config', 'secrets/infrastructure', 'secrets/sources',
                      'secrets/netbox'):
         (tmp_path / relative).mkdir(parents=True, exist_ok=True)
-    install.generate_configuration(tmp_path, 'infra-sync-app:first')
+    install.generate_configuration(tmp_path, 'netbox-sync-app:first')
     api_path = tmp_path / 'config/api.env'
     api_path.write_text(
-        "INFRA_SYNC_REGISTRY_DSN=host=custom dbname=registry application_name='has spaces'\n"
+        "NETBOX_SYNC_REGISTRY_DSN=host=custom dbname=registry application_name='has spaces'\n"
         'NB_API_URL=https://netbox.operator.example\n'
         'OPERATOR_PROVIDER_SETTING=preserve-me\n', encoding='utf-8')
     discovery_path = tmp_path / 'config/discovery.env'
     discovery_path.write_text(
-        'INFRA_SYNC_DISCOVERY_NB_API_URL=https://netbox.operator.example\n', encoding='utf-8')
+        'NETBOX_SYNC_DISCOVERY_NB_API_URL=https://netbox.operator.example\n', encoding='utf-8')
 
-    install.generate_configuration(tmp_path, 'infra-sync-app:second')
+    install.generate_configuration(tmp_path, 'netbox-sync-app:second')
 
     api = api_path.read_text(encoding='utf-8')
-    assert "INFRA_SYNC_REGISTRY_DSN=host=custom dbname=registry application_name='has spaces'" in api
+    assert "NETBOX_SYNC_REGISTRY_DSN=host=custom dbname=registry application_name='has spaces'" in api
     assert 'NB_API_URL=https://netbox.operator.example' in api
     assert 'OPERATOR_PROVIDER_SETTING=preserve-me' in api
-    assert 'INFRA_SYNC_REGISTRATION_DSN=' in api  # a new missing known key was appended
-    assert ('INFRA_SYNC_DISCOVERY_NB_API_URL=https://netbox.operator.example' in
+    assert 'NETBOX_SYNC_REGISTRATION_DSN=' in api  # a new missing known key was appended
+    assert ('NETBOX_SYNC_DISCOVERY_NB_API_URL=https://netbox.operator.example' in
             discovery_path.read_text(encoding='utf-8'))
-    assert 'INFRA_SYNC_IMAGE=infra-sync-app:second' in (
+    assert 'NETBOX_SYNC_IMAGE=netbox-sync-app:second' in (
         tmp_path / 'config/compose.env').read_text(encoding='utf-8')
 
 
@@ -248,10 +248,10 @@ def test_config_write_uses_atomic_replace_only_when_content_changes(tmp_path, mo
 def test_prepare_layout_does_not_activate_current(tmp_path):
     source = _release_tree(tmp_path / 'source')
     root = tmp_path / 'target'
-    prepared = install.prepare_layout(root, source, 'release-one', 'infra-sync-app:one')
+    prepared = install.prepare_layout(root, source, 'release-one', 'netbox-sync-app:one')
     assert prepared.release == root / 'releases/release-one'
     assert prepared.config.is_dir()
-    assert f'INFRA_SYNC_CONFIG_DIR={prepared.config}' in (
+    assert f'NETBOX_SYNC_CONFIG_DIR={prepared.config}' in (
         prepared.config / 'compose.env').read_text(encoding='utf-8')
     assert not (root / 'current').exists()
 
@@ -326,7 +326,7 @@ def test_upgrade_stops_timer_and_acquires_shared_lock_before_prepare(tmp_path, m
     assert events[-1] == 'lock-released'
 
 
-@pytest.mark.parametrize('failed_service', ['infra-sync-migrate', 'infra-sync-db-grants'])
+@pytest.mark.parametrize('failed_service', ['netbox-sync-migrate', 'netbox-sync-db-grants'])
 def test_database_prepare_failure_leaves_current_unchanged(tmp_path, monkeypatch, failed_service):
     old, prepared = _prepared(tmp_path)
 
@@ -368,11 +368,77 @@ def test_prepare_failure_keeps_timer_stopped_and_never_activates(tmp_path, monke
 
 def test_env_file_preserves_libpq_spaces_without_shell_parsing(tmp_path):
     path = tmp_path / 'service.env'
-    value = "host=postgres dbname=infra_sync user=test password='contains spaces'"
+    value = "host=postgres dbname=netbox_sync user=test password='contains spaces'"
     install.write_config(path, {'DATABASE_DSN': value})
     assert path.read_text(encoding='utf-8') == f'DATABASE_DSN={value}\n'
     if os.name == 'posix':
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def _legacy_environment_tree(root, compose_lines):
+    (root / 'config').mkdir(parents=True)
+    for name in install.CONFIG_NAMES:
+        payload = compose_lines if name == 'compose.env' else f'FILE={name}\n'
+        (root / 'config' / name).write_text(payload, encoding='utf-8')
+
+
+def test_legacy_environment_migration_is_explicit_and_preserves_unknown_keys(tmp_path):
+    _legacy_environment_tree(
+        tmp_path,
+        'INFRA_SYNC_IMAGE=example.invalid/image:one\nOPERATOR_KEY=preserved\n')
+    before = (tmp_path / 'config/compose.env').read_bytes()
+    assert install.migrate_legacy_environment(tmp_path) == 1
+    assert (tmp_path / 'config/compose.env').read_bytes() == before
+
+    assert install.migrate_legacy_environment(tmp_path, apply=True) == 1
+    assert (tmp_path / 'config/compose.env').read_text(encoding='utf-8') == (
+        'NETBOX_SYNC_IMAGE=example.invalid/image:one\nOPERATOR_KEY=preserved\n')
+
+
+def test_legacy_environment_migration_removes_equal_duplicate_and_rejects_conflict(tmp_path):
+    _legacy_environment_tree(
+        tmp_path,
+        'INFRA_SYNC_IMAGE=example.invalid/image:one\n'
+        'NETBOX_SYNC_IMAGE=example.invalid/image:one\n')
+    assert install.migrate_legacy_environment(tmp_path, apply=True) == 1
+    assert (tmp_path / 'config/compose.env').read_text(encoding='utf-8') == (
+        'NETBOX_SYNC_IMAGE=example.invalid/image:one\n')
+
+    (tmp_path / 'config/compose.env').write_text(
+        'INFRA_SYNC_IMAGE=example.invalid/image:old\n'
+        'NETBOX_SYNC_IMAGE=example.invalid/image:new\n', encoding='utf-8')
+    before = (tmp_path / 'config/compose.env').read_bytes()
+    with pytest.raises(install.InstallError, match='conflicting legacy environment key'):
+        install.migrate_legacy_environment(tmp_path, apply=True)
+    assert (tmp_path / 'config/compose.env').read_bytes() == before
+
+
+def test_legacy_environment_migration_rejects_unknown_product_key_without_writes(tmp_path):
+    _legacy_environment_tree(tmp_path, 'INFRA_SYNC_UNKNOWN_EXTENSION=sensitive-value\n')
+    before = (tmp_path / 'config/compose.env').read_bytes()
+    with pytest.raises(install.InstallError, match='unrecognized legacy environment key'):
+        install.migrate_legacy_environment(tmp_path, apply=True)
+    assert (tmp_path / 'config/compose.env').read_bytes() == before
+
+
+def test_legacy_environment_migration_translates_state_names_without_touching_secrets(
+        tmp_path):
+    secret = 'do-not-log-or-change-this-value'
+    _legacy_environment_tree(
+        tmp_path,
+        'INFRA_SYNC_COMPOSE_PROJECT=infra-sync\n'
+        'INFRA_SYNC_CONFIG_DIR=/opt/infra-sync/config\n'
+        'INFRA_SYNC_REGISTRY_SCHEMA=infra_sync\n'
+        'INFRA_SYNC_REGISTRY_DSN=postgresql://infra_sync_web_reader:' + secret +
+        '@postgres:5432/infra_sync?connect_timeout=5\n')
+    install.migrate_legacy_environment(tmp_path, apply=True)
+    migrated = (tmp_path / 'config/compose.env').read_text(encoding='utf-8')
+    assert 'NETBOX_SYNC_COMPOSE_PROJECT=netbox-sync\n' in migrated
+    assert 'NETBOX_SYNC_CONFIG_DIR=/opt/netbox-sync/config\n' in migrated
+    assert 'NETBOX_SYNC_REGISTRY_SCHEMA=netbox_sync\n' in migrated
+    assert ('postgresql://netbox_sync_web_reader:' + secret +
+            '@postgres:5432/netbox_sync?connect_timeout=5') in migrated
+    assert secret in migrated
 
 
 def test_release_permission_normalization_excludes_secret_policy(tmp_path):
@@ -380,7 +446,7 @@ def test_release_permission_normalization_excludes_secret_policy(tmp_path):
         pytest.skip('POSIX modes are not represented by the Windows filesystem')
     root = tmp_path / 'release'
     script = root / 'scripts' / 'run.sh'
-    code = root / 'netbox_pve_sync' / 'module.py'
+    code = root / 'netbox_sync' / 'module.py'
     script.parent.mkdir(parents=True)
     code.parent.mkdir(parents=True)
     script.write_text('#!/bin/sh\n', encoding='utf-8')
@@ -395,7 +461,7 @@ def test_database_role_matrix_is_complete_and_has_no_secret_literals():
         'owner', 'web_reader', 'registration_writer', 'discovery_reader',
         'apply_registry_reader', 'registry_reader', 'run_writer', 'schedule_writer',
     }
-    source = (ROOT / 'netbox_pve_sync/deployment.py').read_text(encoding='utf-8')
+    source = (ROOT / 'netbox_sync/deployment.py').read_text(encoding='utf-8')
     assert 'DELETE' not in source
     assert 'TRUNCATE' not in source
     assert 'sql.Literal(password)' in source
@@ -411,9 +477,100 @@ def test_database_tool_sanitizes_failures(monkeypatch, capsys):
     assert 'bootstrap-roles failed' in output.err
 
 
+class _NamingCursor:
+    def __init__(self, phase, statements):
+        self.phase = phase
+        self.statements = statements
+        self.query = ''
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, query, parameters=None):
+        self.query = str(query)
+        self.parameters = parameters
+        self.statements.append((self.phase, self.query, parameters))
+
+    def fetchall(self):
+        if 'pg_class' in self.query:
+            return [('alembic_version', 'r'), ('schema_meta', 'r'),
+                    ('sources', 'r'), ('sync_runs', 'r')]
+        if 'pg_namespace' in self.query:
+            return [(deployment.LEGACY_SCHEMA_NAME,)]
+        if 'pg_tables' in self.query:
+            return [(name,) for name in
+                    ('alembic_version', 'schema_meta', 'sources', 'sync_runs')]
+        if 'pg_database' in self.query:
+            return [(deployment.LEGACY_DATABASE_NAME,)]
+        if 'pg_roles' in self.query:
+            return [(name,) for name in (
+                deployment.LEGACY_BOOTSTRAP_ROLE,
+                *deployment.LEGACY_DATABASE_ROLES.values())]
+        return []
+
+    def fetchone(self):
+        if 'alembic_version' in self.query:
+            return ('0002_sync_run_history',)
+        if 'pg_stat_activity' in self.query:
+            return (0,)
+        if 'SELECT 1 FROM pg_roles' in self.query:
+            return None
+        return None
+
+
+class _NamingConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def cursor(self):
+        return self._cursor
+
+
+def test_database_naming_migration_requires_confirmation_and_preloads_passwords(monkeypatch):
+    monkeypatch.setattr(deployment.psycopg, 'connect',
+                        lambda *_args, **_kwargs: pytest.fail('database was contacted'))
+    with pytest.raises(deployment.DeploymentError, match='confirmation'):
+        deployment.migrate_database_naming({})
+
+    environment = {'NETBOX_SYNC_NAMING_CONFIRM': deployment.NAMING_CONFIRMATION}
+    monkeypatch.setattr(deployment, 'read_password',
+                        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                            deployment.DeploymentError('credential unavailable')))
+    with pytest.raises(deployment.DeploymentError, match='credential unavailable'):
+        deployment.migrate_database_naming(environment)
+
+
+def test_database_naming_migration_renames_only_preflighted_state(monkeypatch):
+    statements = []
+    cursors = iter(_NamingCursor(phase, statements) for phase in ('legacy', 'cluster', 'target'))
+    monkeypatch.setattr(deployment.psycopg, 'connect',
+                        lambda *_args, **_kwargs: _NamingConnection(next(cursors)))
+    monkeypatch.setattr(deployment, '_legacy_connection_info', lambda *_args: '')
+    monkeypatch.setattr(deployment, 'connection_info', lambda *_args: '')
+    monkeypatch.setattr(deployment, 'read_password', lambda key, _env: 'test-' + key)
+    deployment.migrate_database_naming({
+        'NETBOX_SYNC_NAMING_CONFIRM': deployment.NAMING_CONFIRMATION})
+
+    rendered = '\n'.join(query for _phase, query, _parameters in statements)
+    assert 'DROP' not in rendered and 'CASCADE' not in rendered
+    assert rendered.count('CREATE ROLE') >= len(deployment.DATABASE_ROLES) + 1
+    assert 'ALTER DATABASE' in rendered
+    assert 'ALTER SCHEMA' in rendered
+    assert 'DROP ROLE' not in rendered
+
+
 class _OwnershipCursor:
-    def __init__(self, database_owner='infra_sync_owner', schema_owner='infra_sync_owner',
-                 table_owners=('infra_sync_owner',)):
+    def __init__(self, database_owner='netbox_sync_owner', schema_owner='netbox_sync_owner',
+                 table_owners=('netbox_sync_owner',)):
         self.database_owner = database_owner
         self.schema_owner = schema_owner
         self.table_owners = table_owners
@@ -456,7 +613,7 @@ def test_migration_ownership_preflight_accepts_owner_and_missing_schema(monkeypa
         monkeypatch.setattr(deployment.psycopg, 'connect',
                             lambda *_args, current=cursor, **_kwargs: _OwnershipConnection(current))
         monkeypatch.setattr(deployment, 'connection_info', lambda *_args, **_kwargs: '')
-        deployment.validate_migration_ownership({'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync'})
+        deployment.validate_migration_ownership({'NETBOX_SYNC_REGISTRY_SCHEMA': 'netbox_sync'})
 
 
 def test_migration_ownership_preflight_rejects_foreign_table_owner(monkeypatch):
@@ -465,7 +622,7 @@ def test_migration_ownership_preflight_rejects_foreign_table_owner(monkeypatch):
                         lambda *_args, **_kwargs: _OwnershipConnection(cursor))
     monkeypatch.setattr(deployment, 'connection_info', lambda *_args, **_kwargs: '')
     with pytest.raises(deployment.DeploymentError, match='table owners'):
-        deployment.validate_migration_ownership({'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync'})
+        deployment.validate_migration_ownership({'NETBOX_SYNC_REGISTRY_SCHEMA': 'netbox_sync'})
 
 
 def test_lf_policy_covers_deployment_artifacts():

@@ -5,9 +5,9 @@ import stat
 import sys
 from pathlib import Path
 
-from netbox_pve_sync.api.onboarding_adapters import BrokerSecretStore
-from netbox_pve_sync.secret_resolver import FileSecretResolver
-from netbox_pve_sync.source_config import SecretReference, SourceCredentials
+from netbox_sync.api.onboarding_adapters import BrokerSecretStore
+from netbox_sync.secret_resolver import FileSecretResolver
+from netbox_sync.source_config import SecretReference, SourceCredentials
 
 KEY_ID = 'src-smoke-token-id-0123456789abcdef'
 KEY_SECRET = 'src-smoke-secret-0123456789abcdef'
@@ -39,7 +39,7 @@ def main(mode):
         assert resolved.token_id == 'FAKE_TOKEN_ID' and resolved.token_secret == 'FAKE_TOKEN_SECRET'
         assert resolver.resolve(SecretReference('file', KEY_ESXI)) == 'FAKE_ESXI_PASSWORD'
         assert resolver.resolve(SecretReference('file', 'esxi_infra_sync_password')) == 'FAKE_LEGACY_PASSWORD'
-        path = Path('/run/secrets/infra-sync-sources') / KEY_SECRET
+        path = Path('/run/secrets/netbox-sync-sources') / KEY_SECRET
         info = path.stat()
         assert (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (0, 0, 0o600)
         try:

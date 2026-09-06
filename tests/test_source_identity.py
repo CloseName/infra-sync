@@ -5,12 +5,12 @@ from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
-from netbox_pve_sync.proxmox_discovery import discover_hosts
-from netbox_pve_sync.netbox_vm_interface_metadata import (
+from netbox_sync.proxmox_discovery import discover_hosts
+from netbox_sync.netbox_vm_interface_metadata import (
     build_nic_custom_fields,
     find_nic_sync_identity_matches,
 )
-from netbox_pve_sync.source_identity import (
+from netbox_sync.source_identity import (
     SourceIdentity,
     host_source_identity,
     lxc_nic_source_identity,

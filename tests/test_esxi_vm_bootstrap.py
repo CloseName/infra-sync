@@ -5,17 +5,17 @@ from dataclasses import replace
 
 import pytest
 
-from netbox_pve_sync.esxi_discovery import discover_hosts
-from netbox_pve_sync.esxi_migration import (
+from netbox_sync.esxi_discovery import discover_hosts
+from netbox_sync.esxi_migration import (
     ObjectMigrationClassification,
     build_esxi_migration_plan,
 )
-from netbox_pve_sync.esxi_vm_bootstrap import (
+from netbox_sync.esxi_vm_bootstrap import (
     EsxiNewVmBootstrapError,
     apply_esxi_new_vm_bootstrap,
 )
-from netbox_pve_sync.netbox_vm_metadata import build_vm_custom_fields
-from netbox_pve_sync.source_config import SecretReference, SourceCredentials
+from netbox_sync.netbox_vm_metadata import build_vm_custom_fields
+from netbox_sync.source_config import SecretReference, SourceCredentials
 
 from tests.fakes import FakeRecord
 from tests.fakes.esxi import fake_esxi_service

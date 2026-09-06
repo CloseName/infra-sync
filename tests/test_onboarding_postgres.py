@@ -10,13 +10,13 @@ import pytest
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
-from netbox_pve_sync.api.onboarding_adapters import RegistrationRegistry
-from netbox_pve_sync.application.onboarding import (
+from netbox_sync.api.onboarding_adapters import RegistrationRegistry
+from netbox_sync.application.onboarding import (
     EphemeralOnboardingStore, OnboardingError, SecretReceipt, SourceOnboardingService,
 )
-from netbox_pve_sync.secret_resolver import FileSecretResolver
-from netbox_pve_sync.source_bootstrap import load_runtime_source_configs
-from netbox_pve_sync.source_registry import SourceRegistry
+from netbox_sync.secret_resolver import FileSecretResolver
+from netbox_sync.source_bootstrap import load_runtime_source_configs
+from netbox_sync.source_registry import SourceRegistry
 from tests.test_onboarding import command, credentials, FakeSecrets, SECRET
 from tests.test_source_registry_postgres import _safe_test_dsn
 from tests.sample_data import sample_source_config
@@ -25,13 +25,13 @@ from tests.sample_data import sample_source_config
 @pytest.fixture
 def registry_database():
     dsn = _safe_test_dsn()
-    schema = 'infra_sync_test_' + uuid.uuid4().hex
+    schema = 'netbox_sync_test_' + uuid.uuid4().hex
     reader = SourceRegistry(lambda: psycopg.connect(dsn), schema)
     reader.initialize()
     try:
         yield RegistrationRegistry(dsn, schema), reader, dsn, schema
     finally:
-        assert schema.startswith('infra_sync_test_')
+        assert schema.startswith('netbox_sync_test_')
         with psycopg.connect(dsn) as connection:
             connection.execute(sql.SQL('DROP SCHEMA {} CASCADE').format(sql.Identifier(schema)))
 
@@ -48,8 +48,8 @@ def test_postgres_registration_exact_defaults_references_and_duplicates(registry
     assert config.credentials.token_secret.provider == 'file'
     assert SECRET not in repr(config)
     assert load_runtime_source_configs({'SOURCE_CONFIG_MODE': 'registry-all',
-                                       'INFRA_SYNC_REGISTRY_DSN': dsn,
-                                       'INFRA_SYNC_REGISTRY_SCHEMA': schema}) == (existing,)
+                                       'NETBOX_SYNC_REGISTRY_DSN': dsn,
+                                       'NETBOX_SYNC_REGISTRY_SCHEMA': schema}) == (existing,)
     with pytest.raises(OnboardingError, match='SOURCE_ALREADY_EXISTS'):
         service.register(command(service.test_connection(credentials(source_type)), source_type))
     assert reader.get_source_config(config.id) == config
@@ -60,7 +60,7 @@ def test_postgres_registration_exact_defaults_references_and_duplicates(registry
                     reason='Requires disposable Linux root container')
 @pytest.mark.parametrize('source_type', ['proxmox', 'esxi'])
 def test_existing_runtime_resolves_broker_created_files(registry_database, tmp_path, source_type):
-    from netbox_pve_sync.secret_broker import SecretBrokerStore
+    from netbox_sync.secret_broker import SecretBrokerStore
     writer, reader, _dsn, _schema = registry_database
     os.chmod(tmp_path, 0o700)
     broker = SecretBrokerStore(tmp_path)
@@ -81,7 +81,7 @@ def test_existing_runtime_resolves_broker_created_files(registry_database, tmp_p
 
 def test_registration_role_insert_select_only(registry_database):
     _writer, reader, dsn, schema = registry_database
-    role = 'infra_sync_test_role_' + uuid.uuid4().hex
+    role = 'netbox_sync_test_role_' + uuid.uuid4().hex
     with psycopg.connect(dsn) as connection:
         connection.execute(sql.SQL('CREATE ROLE {} LOGIN').format(sql.Identifier(role)))
         connection.execute(sql.SQL('GRANT USAGE ON SCHEMA {} TO {}').format(

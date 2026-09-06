@@ -2,15 +2,15 @@
 
 from dataclasses import replace
 
-from netbox_pve_sync.netbox_disappearance import report_missing_managed_objects
-from netbox_pve_sync.netbox_vm_apply import apply_virtual_machines
-from netbox_pve_sync.netbox_vm_metadata import (
+from netbox_sync.netbox_disappearance import report_missing_managed_objects
+from netbox_sync.netbox_vm_apply import apply_virtual_machines
+from netbox_sync.netbox_vm_metadata import (
     build_vm_custom_fields,
     find_vm_sync_identity_matches,
     matches_vm_sync_identity,
 )
-from netbox_pve_sync.proxmox_discovery import discover_hosts
-from netbox_pve_sync.source_identity import qemu_source_identity
+from netbox_sync.proxmox_discovery import discover_hosts
+from netbox_sync.source_identity import qemu_source_identity
 
 from tests.fakes import FakeProxmox, FakeRecord
 from tests.netbox_scenarios import add_target, vm_identity

@@ -4,8 +4,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from netbox_pve_sync.proxmox_discovery import discover_hosts
-from netbox_pve_sync.source_config import SourceConfig
+from netbox_sync.proxmox_discovery import discover_hosts
+from netbox_sync.source_config import SourceConfig
 
 from tests.fakes import FakeProxmox
 from tests.sample_data import (

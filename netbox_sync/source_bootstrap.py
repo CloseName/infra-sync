@@ -99,8 +99,8 @@ def load_runtime_source_config(environ=None, registry_factory=None):
             'registry-all mode requires multi-source configuration loading'
         )
 
-    dsn = _required(environ, 'INFRA_SYNC_REGISTRY_DSN')
-    schema = _required(environ, 'INFRA_SYNC_REGISTRY_SCHEMA')
+    dsn = _required(environ, 'NETBOX_SYNC_REGISTRY_DSN')
+    schema = _required(environ, 'NETBOX_SYNC_REGISTRY_SCHEMA')
     source_id = _required(environ, 'SOURCE_ID')
     factory = registry_factory or _postgres_registry
     registry = factory(dsn, schema)
@@ -129,8 +129,8 @@ def load_runtime_source_configs(environ=None, registry_factory=None):
         raise SourceBootstrapError(
             'multi-source loading requires SOURCE_CONFIG_MODE=registry-all'
         )
-    dsn = _required(environ, 'INFRA_SYNC_REGISTRY_DSN')
-    schema = _required(environ, 'INFRA_SYNC_REGISTRY_SCHEMA')
+    dsn = _required(environ, 'NETBOX_SYNC_REGISTRY_DSN')
+    schema = _required(environ, 'NETBOX_SYNC_REGISTRY_SCHEMA')
     factory = registry_factory or _postgres_registry
     registry = factory(dsn, schema)
     configs = registry.list_runnable_sources()
@@ -155,8 +155,8 @@ def load_scheduler_source_configs(environ=None, registry_factory=None):
     if runtime_source_mode(environ) != REGISTRY_ALL_MODE:
         raise SourceBootstrapError('scheduler requires SOURCE_CONFIG_MODE=registry-all')
     registry = (registry_factory or _postgres_registry)(
-        _required(environ, 'INFRA_SYNC_REGISTRY_DSN'),
-        _required(environ, 'INFRA_SYNC_REGISTRY_SCHEMA'))
+        _required(environ, 'NETBOX_SYNC_REGISTRY_DSN'),
+        _required(environ, 'NETBOX_SYNC_REGISTRY_SCHEMA'))
     load_results = registry.list_sources_isolated()
     configs = tuple(SchedulerSourceInput(
         result.record.to_source_config() if result.valid else None

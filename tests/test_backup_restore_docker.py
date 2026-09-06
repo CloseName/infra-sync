@@ -15,21 +15,21 @@ ROOT = Path(__file__).parents[1]
 
 
 @pytest.mark.skipif(
-    os.environ.get('INFRA_SYNC_BACKUP_DOCKER_TEST') != '1',
-    reason='set INFRA_SYNC_BACKUP_DOCKER_TEST=1 for disposable Docker smoke',
+    os.environ.get('NETBOX_SYNC_BACKUP_DOCKER_TEST') != '1',
+    reason='set NETBOX_SYNC_BACKUP_DOCKER_TEST=1 for disposable Docker smoke',
 )
 def test_bundled_postgres_custom_dump_restore_transport(tmp_path):
     """Creates and removes a unique project/volume; it never accepts an external DSN."""
     if shutil.which('docker') is None:
         pytest.skip('Docker is unavailable')
-    project = 'infra-sync-backup-smoke-' + uuid.uuid4().hex[:10]
+    project = 'netbox-sync-backup-smoke-' + uuid.uuid4().hex[:10]
     root = tmp_path / 'foundation'
     prepared = install.prepare_layout(root, ROOT, 'backup-smoke', 'unused:backup-smoke')
     compose_path = prepared.config / 'compose.env'
     replacement = install._merged_config(  # pylint: disable=protected-access
         compose_path, {}, {
-            'INFRA_SYNC_COMPOSE_PROJECT': project,
-            'INFRA_SYNC_POSTGRES_VOLUME': project + '-data',
+            'NETBOX_SYNC_COMPOSE_PROJECT': project,
+            'NETBOX_SYNC_POSTGRES_VOLUME': project + '-data',
         })
     install._atomic_write(compose_path, replacement)  # pylint: disable=protected-access
     install.publish_configuration(prepared)
@@ -41,21 +41,21 @@ def test_bundled_postgres_custom_dump_restore_transport(tmp_path):
             root, prepared.release, root / 'config')
         database = backup.DatabaseTool(root, 'bundled')
         database.query(
-            "CREATE ROLE infra_sync_owner LOGIN; "
-            "ALTER DATABASE infra_sync OWNER TO infra_sync_owner; "
-            "CREATE SCHEMA infra_sync AUTHORIZATION infra_sync_owner; "
-            "SET ROLE infra_sync_owner; "
-            "CREATE TABLE infra_sync.alembic_version(version_num text primary key); "
-            "INSERT INTO infra_sync.alembic_version VALUES ('0002_sync_run_history'); "
-            "CREATE TABLE infra_sync.schema_meta(key text primary key, value text); "
-            "INSERT INTO infra_sync.schema_meta VALUES ('schema_version', '1'); "
-            "CREATE TABLE infra_sync.sources(source_instance text, token_id_provider text, "
+            "CREATE ROLE netbox_sync_owner LOGIN; "
+            "ALTER DATABASE netbox_sync OWNER TO netbox_sync_owner; "
+            "CREATE SCHEMA netbox_sync AUTHORIZATION netbox_sync_owner; "
+            "SET ROLE netbox_sync_owner; "
+            "CREATE TABLE netbox_sync.alembic_version(version_num text primary key); "
+            "INSERT INTO netbox_sync.alembic_version VALUES ('0002_sync_run_history'); "
+            "CREATE TABLE netbox_sync.schema_meta(key text primary key, value text); "
+            "INSERT INTO netbox_sync.schema_meta VALUES ('schema_version', '1'); "
+            "CREATE TABLE netbox_sync.sources(source_instance text, token_id_provider text, "
             "token_id_key text, token_secret_provider text, token_secret_key text); "
-            "INSERT INTO infra_sync.sources VALUES "
+            "INSERT INTO netbox_sync.sources VALUES "
             "('pve-smoke', 'file', 'pve-id', 'file', 'pve-secret'), "
             "('esxi-smoke', 'file', 'esxi-user', 'file', 'esxi-password'); "
-            "CREATE TABLE infra_sync.sync_runs(run_id text, status text); "
-            "INSERT INTO infra_sync.sync_runs VALUES ('one', 'RUNNING')")
+            "CREATE TABLE netbox_sync.sync_runs(run_id text, status text); "
+            "INSERT INTO netbox_sync.sync_runs VALUES ('one', 'RUNNING')")
         assert database.metadata()['source_count'] == 2
         assert database.metadata()['run_count'] == 1
         assert database.validate_foundation_target() is None
@@ -63,7 +63,7 @@ def test_bundled_postgres_custom_dump_restore_transport(tmp_path):
         dump = root / 'state/database.dump'
         database.dump(dump)
         database.verify_dump(dump)
-        database.query("DELETE FROM infra_sync.sources; DELETE FROM infra_sync.sync_runs")
+        database.query("DELETE FROM netbox_sync.sources; DELETE FROM netbox_sync.sync_runs")
         assert database.target_counts() == (0, 0)
         database.restore(dump)
         assert database.metadata()['source_count'] == 2

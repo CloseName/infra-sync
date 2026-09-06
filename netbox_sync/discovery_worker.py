@@ -112,7 +112,7 @@ class DiscoverySupervisor:
             'operation': operation,
         }).encode()
         try:
-            with self._popen([sys.executable, '-B', '-m', 'netbox_pve_sync.discovery_worker', '--child'],
+            with self._popen([sys.executable, '-B', '-m', 'netbox_sync.discovery_worker', '--child'],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                              env=_safe_environment(), preexec_fn=_drop_privileges(
                                  self._child_uid, self._child_gid) if os.name == 'posix' else None) as process:
@@ -295,10 +295,10 @@ def main():
     if args.child:
         child_main()
         return
-    supervisor = DiscoverySupervisor(args.registry_dsn or os.environ.get('INFRA_SYNC_DISCOVERY_REGISTRY_DSN', ''),
-                                     args.registry_schema or os.environ.get('INFRA_SYNC_REGISTRY_SCHEMA', ''),
+    supervisor = DiscoverySupervisor(args.registry_dsn or os.environ.get('NETBOX_SYNC_DISCOVERY_REGISTRY_DSN', ''),
+                                     args.registry_schema or os.environ.get('NETBOX_SYNC_REGISTRY_SCHEMA', ''),
                                      args.secret_root, args.source_secret_root,
-                                     args.netbox_url or os.environ.get('INFRA_SYNC_DISCOVERY_NB_API_URL', ''),
+                                     args.netbox_url or os.environ.get('NETBOX_SYNC_DISCOVERY_NB_API_URL', ''),
                                      args.netbox_token_file,
                                      args.child_uid, args.child_gid)
     serve(args.socket, supervisor, args.api_uid)

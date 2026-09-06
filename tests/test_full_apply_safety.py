@@ -2,7 +2,7 @@
 
 import pytest
 
-from netbox_pve_sync import netbox_full_apply
+from netbox_sync import netbox_full_apply
 
 
 def _recording_stage(name, events, fake_netbox, *, fail_precheck=False):

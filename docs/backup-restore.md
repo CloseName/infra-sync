@@ -1,4 +1,4 @@
-# Infra Sync backup and fresh restore
+# NetBox Sync backup and fresh restore
 
 Status: Backup Format v1 is the supported operator workflow for the canonical
 Debian Deployment Foundation. Bundled PostgreSQL 16 is the primary tested mode;
@@ -7,7 +7,7 @@ tools and an operator-provided maintenance DSN.
 
 Backups contain credentials and are highly sensitive. Keep the local directory
 root-only, encrypt a copy with an approved external tool such as `age`, GPG, or the
-corporate backup system, and move that encrypted copy off the Infra Sync VM. Infra
+corporate backup system, and move that encrypted copy off the NetBox Sync VM. NetBox
 Sync does not invent an encryption format and does not delete or retain old backups
 automatically.
 
@@ -15,15 +15,15 @@ automatically.
 
 The required state is:
 
-- a logical custom-format dump of database `infra_sync`, including schema
-  `infra_sync`, `schema_meta`, `sources`, `sync_runs`, `alembic_version`, indexes,
+- a logical custom-format dump of database `netbox_sync`, including schema
+  `netbox_sync`, `schema_meta`, `sources`, `sync_runs`, `alembic_version`, indexes,
   constraints and every application schema object;
-- `/opt/infra-sync/config`: the six canonical env files, preserved byte-for-byte,
+- `/opt/netbox-sync/config`: the six canonical env files, preserved byte-for-byte,
   including unknown operator keys;
-- `/opt/infra-sync/secrets/infrastructure`: the bootstrap and fixed runtime-role
+- `/opt/netbox-sync/secrets/infrastructure`: the bootstrap and fixed runtime-role
   password files;
-- `/opt/infra-sync/secrets/sources`: exact logical filenames and broker xattrs;
-- `/opt/infra-sync/secrets/netbox`: separate read and apply token files when
+- `/opt/netbox-sync/secrets/sources`: exact logical filenames and broker xattrs;
+- `/opt/netbox-sync/secrets/netbox`: separate read and apply token files when
   configured;
 - a manifest identifying the active immutable release and deployment/database
   metadata.
@@ -37,16 +37,16 @@ logs, checkout files, caches, `node_modules`, and image layers. No runtime item 
 NetBox remains an external system of record and is not copied by this workflow. Its
 managed v1/v2 custom-field identities remain in NetBox; restoring the exact
 `source_instance`, source type, target settings, credential references, and secret
-filenames preserves the corresponding Infra Sync identity namespace without source
+filenames preserves the corresponding NetBox Sync identity namespace without source
 re-registration.
 
 ## Bundle Format v1
 
-The default destination is `/opt/infra-sync/backups` (0700). A complete directory is
+The default destination is `/opt/netbox-sync/backups` (0700). A complete directory is
 published atomically only after verification:
 
 ```text
-infra-sync-backup-YYYYMMDD-HHMMSS/
+netbox-sync-backup-YYYYMMDD-HHMMSS/
   COMPLETE
   manifest.json
   checksums.sha256
@@ -56,9 +56,9 @@ infra-sync-backup-YYYYMMDD-HHMMSS/
 
 Payload files are 0600. `database.dump` is produced by `pg_dump -Fc --no-owner
 --no-acl`; it never contains cluster-level roles. `state.tar` is a GNU pax tar made
-with numeric owners and the `user.infra_sync.*` xattr namespace. Broker-created
-source secrets require `user.infra_sync.operation`, `user.infra_sync.receipt`, and
-`user.infra_sync.complete`.
+with numeric owners and the `user.netbox_sync.*` xattr namespace. Broker-created
+source secrets require `user.netbox_sync.operation`, `user.netbox_sync.receipt`, and
+`user.netbox_sync.complete`.
 
 The manifest contains format/application/release versions, UTC time, Compose project,
 PostgreSQL major, database/schema, Alembic revision, source/run/secret counts, exact
@@ -77,11 +77,11 @@ directory and never touches a previous backup.
 Run from the active release as root:
 
 ```sh
-cd /opt/infra-sync/current
+cd /opt/netbox-sync/current
 sudo python deploy/backup.py create
 sudo python deploy/backup.py create --output /protected/backup-target
-sudo python deploy/backup.py verify /opt/infra-sync/backups/infra-sync-backup-TIMESTAMP
-sudo python deploy/backup.py inspect /opt/infra-sync/backups/infra-sync-backup-TIMESTAMP
+sudo python deploy/backup.py verify /opt/netbox-sync/backups/netbox-sync-backup-TIMESTAMP
+sudo python deploy/backup.py inspect /opt/netbox-sync/backups/netbox-sync-backup-TIMESTAMP
 sudo python deploy/backup.py list
 ```
 
@@ -95,7 +95,7 @@ Exit status is `0` only on success. Failures use a stable safe class such as
 or secret-bearing exceptions are not printed.
 
 Create records whether the timer was active, stops it, waits boundedly for
-`/run/infra-sync/apply.lock`, and never kills an active apply. Once it owns that same
+`/run/netbox-sync/apply.lock`, and never kills an active apply. Once it owns that same
 inode, it stops API, broker, discovery, apply, and schedule-control services.
 PostgreSQL remains online. This short maintenance window prevents onboarding,
 schedule, run-history, secret, scheduled, and manual-apply writes while the database
@@ -107,12 +107,12 @@ For external PostgreSQL, install compatible client tools and provide the protect
 value without putting it in argv or source control:
 
 ```sh
-sudo --preserve-env=INFRA_SYNC_BACKUP_DSN \
+sudo --preserve-env=NETBOX_SYNC_BACKUP_DSN \
   python deploy/backup.py --postgres-mode external create
 ```
 
-The maintenance DSN must dump all Infra Sync objects. Restore also requires permission
-to replace them and `SET ROLE infra_sync_owner`; do not reuse a runtime reader. The
+The maintenance DSN must dump all NetBox Sync objects. Restore also requires permission
+to replace them and `SET ROLE netbox_sync_owner`; do not reuse a runtime reader. The
 value is inherited only by the operator process/client tools and is never printed.
 
 ## Supported fresh restore
@@ -122,9 +122,9 @@ intended immutable release active, PostgreSQL reachable, fixed roles bootstrappe
 and no source/history rows. First perform a no-write check:
 
 ```sh
-cd /opt/infra-sync/current
-sudo python deploy/backup.py restore /protected/infra-sync-backup-TIMESTAMP --check
-sudo python deploy/backup.py restore /protected/infra-sync-backup-TIMESTAMP
+cd /opt/netbox-sync/current
+sudo python deploy/backup.py restore /protected/netbox-sync-backup-TIMESTAMP --check
+sudo python deploy/backup.py restore /protected/netbox-sync-backup-TIMESTAMP
 ```
 
 Restore verifies format, checksums, archive paths/types, xattr contract, dump
@@ -137,8 +137,10 @@ The write sequence is:
 1. stop the timer, acquire the shared lock, and stop writer/control services;
 2. extract config/secrets into root-only staging and validate exact paths, uid/gid,
    mode, and xattr fingerprints;
-3. replace only Foundation schema objects with `pg_restore --clean --if-exists
-   --no-owner --no-acl --role=infra_sync_owner`;
+3. after proving the target is the exact empty Foundation schema, drop only the
+   allowlisted Foundation tables and schema without `CASCADE`, restore with
+   `pg_restore --no-owner --no-acl --role=netbox_sync_owner`, and rename a verified
+   legacy `infra_sync` schema to `netbox_sync` when restoring a pre-rename bundle;
 4. run the tracked Alembic tool forward to target head and reapply tracked grants;
 5. create a transient root-only password view containing the target bootstrap password
    and restored runtime passwords; the tracked `restore-role-passwords` operation
@@ -162,6 +164,11 @@ dirty: diagnose or recreate it before retrying. There is no automatic DB rollbac
 ## Compatibility and limitations
 
 - Backup Format v1 is accepted by this v1 tool. Unknown future formats are rejected.
+- Valid pre-rename Format v1 bundles retain their original manifest identity,
+  `infra_sync` schema and `user.infra_sync.*` receipts. Restore translates reviewed
+  product-global environment keys, preserves unknown/operator keys and logical source
+  filenames, renames the restored schema without data rewrite, and accepts either
+  complete xattr namespace. New bundles and broker writes use only NetBox Sync names.
 - The backup Alembic revision must be in the target tool's reviewed chain. The same
   revision restores directly; an older known revision migrates forward. A newer or
   unknown revision is rejected before writes. Downgrade is never attempted.

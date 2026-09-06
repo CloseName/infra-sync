@@ -2,9 +2,9 @@
 
 from copy import deepcopy
 
-from netbox_pve_sync.netbox_vm_apply import apply_virtual_machines
-from netbox_pve_sync.netbox_lxc_apply import apply_lxc_containers
-from netbox_pve_sync.proxmox_discovery import discover_hosts
+from netbox_sync.netbox_vm_apply import apply_virtual_machines
+from netbox_sync.netbox_lxc_apply import apply_lxc_containers
+from netbox_sync.proxmox_discovery import discover_hosts
 
 from tests.fakes import FakeProxmox, FakeRecord
 from tests.netbox_scenarios import add_target, vm_identity

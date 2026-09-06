@@ -8,10 +8,10 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 
-from netbox_pve_sync.api.app import create_app
-from netbox_pve_sync.api.database import PostgresHealthProbe
-from netbox_pve_sync.api.settings import ApiSettings
-from netbox_pve_sync.application.health import SystemHealthService
+from netbox_sync.api.app import create_app
+from netbox_sync.api.database import PostgresHealthProbe
+from netbox_sync.api.settings import ApiSettings
+from netbox_sync.application.health import SystemHealthService
 
 SECRET = 'FAKE_SECRET_MUST_NEVER_BE_RETURNED'
 
@@ -45,7 +45,7 @@ class FakeConnection(AbstractContextManager):
 
 
 def _client(connection=None, connector=None, *, configured=True):
-    settings = ApiSettings(registry_dsn=SECRET, registry_schema='infra_sync_test',
+    settings = ApiSettings(registry_dsn=SECRET, registry_schema='netbox_sync_test',
                            netbox_configured=configured)
     probe = PostgresHealthProbe(settings, connector=connector or (lambda *_args, **_kw: connection))
     service = SystemHealthService(probe, netbox_configured=configured)
@@ -58,7 +58,7 @@ def test_liveness_does_not_connect_and_version_is_safe():
     with _client(connector=forbidden) as client:
         assert client.get('/api/v1/health').json() == {'status': 'healthy'}
         version = client.get('/api/v1/version').json()
-        assert version['name'] == 'Infra Sync'
+        assert version['name'] == 'NetBox Sync'
         assert isinstance(version['version'], str)
         assert SECRET not in json.dumps(version)
 
@@ -88,7 +88,7 @@ def test_healthy_database_and_unbaselined_registry():
 def test_database_failure_has_no_secret_or_raw_exception(caplog):
     def unavailable(*_args, **_kwargs):
         raise RuntimeError(SECRET)
-    with caplog.at_level(logging.INFO, logger='infra_sync.api'), _client(connector=unavailable) as client:
+    with caplog.at_level(logging.INFO, logger='netbox_sync.api'), _client(connector=unavailable) as client:
         response = client.get('/api/v1/system/health')
     assert response.json()['status'] == 'unavailable'
     assert response.json()['components']['database']['error_code'] == 'REGISTRY_UNAVAILABLE'
@@ -113,11 +113,11 @@ def test_absent_configuration_is_degraded_without_connecting():
 
 
 def test_request_id_is_server_generated_distinct_from_run_id(caplog):
-    with caplog.at_level(logging.INFO, logger='infra_sync.api'), _client() as client:
+    with caplog.at_level(logging.INFO, logger='netbox_sync.api'), _client() as client:
         first = client.get('/api/v1/health', headers={'X-Request-ID': SECRET})
         second = client.get('/api/v1/health')
     assert UUID(first.headers['X-Request-ID']) != UUID(second.headers['X-Request-ID'])
-    records = [json.loads(record.message) for record in caplog.records if record.name == 'infra_sync.api']
+    records = [json.loads(record.message) for record in caplog.records if record.name == 'netbox_sync.api']
     assert all(record['component'] == 'api' and record['run_id'] is None for record in records)
     assert SECRET not in caplog.text
 
@@ -144,7 +144,7 @@ def test_internal_errors_and_invalid_inputs_are_sanitized(caplog):
     @app.get('/test-validation/{number}')
     def validated(number: int):
         return number
-    with caplog.at_level(logging.INFO, logger='infra_sync.api'), TestClient(app) as client:
+    with caplog.at_level(logging.INFO, logger='netbox_sync.api'), TestClient(app) as client:
         internal = client.get('/test-failure')
         invalid = client.get('/test-validation/' + SECRET)
     assert internal.status_code == 500
@@ -162,7 +162,7 @@ def test_no_wildcard_cors_and_configuration_repr_hides_dsn():
 
 
 def test_frontend_serving_is_limited_to_build_assets(tmp_path):
-    (tmp_path / 'index.html').write_text('<html>Infra Sync</html>', encoding='utf-8')
+    (tmp_path / 'index.html').write_text('<html>NetBox Sync</html>', encoding='utf-8')
     (tmp_path / 'assets').mkdir()
     (tmp_path / 'private.txt').write_text(SECRET, encoding='utf-8')
     with TestClient(create_app(ApiSettings(web_dist=str(tmp_path)))) as client:

@@ -5,18 +5,18 @@ from types import SimpleNamespace
 
 import pytest
 
-from netbox_pve_sync.secret_resolver import (
+from netbox_sync.secret_resolver import (
     FileSecretResolver,
     SecretResolutionError,
 )
-from netbox_pve_sync.source_bootstrap import (
+from netbox_sync.source_bootstrap import (
     SourceBootstrapError,
     load_runtime_source_config,
     load_runtime_source_configs,
     load_scheduler_source_configs,
     runtime_source_mode,
 )
-from netbox_pve_sync.source_config import SecretReference, SourceConfig
+from netbox_sync.source_config import SecretReference, SourceConfig
 
 from tests.sample_data import sample_source_config
 from tests.test_source_config import legacy_environment
@@ -42,8 +42,8 @@ def registry_environment(**overrides):
 
     environ = {
         'SOURCE_CONFIG_MODE': 'registry',
-        'INFRA_SYNC_REGISTRY_DSN': 'postgresql://registry.invalid/test',
-        'INFRA_SYNC_REGISTRY_SCHEMA': 'infra_sync',
+        'NETBOX_SYNC_REGISTRY_DSN': 'postgresql://registry.invalid/test',
+        'NETBOX_SYNC_REGISTRY_SCHEMA': 'netbox_sync',
         'SOURCE_ID': 'pve-infra-test',
     }
     environ.update(overrides)
@@ -86,7 +86,7 @@ def test_explicit_invalid_runtime_mode_fails_closed(value):
 
 @pytest.mark.parametrize(
     'missing_variable',
-    ('INFRA_SYNC_REGISTRY_DSN', 'INFRA_SYNC_REGISTRY_SCHEMA', 'SOURCE_ID'),
+    ('NETBOX_SYNC_REGISTRY_DSN', 'NETBOX_SYNC_REGISTRY_SCHEMA', 'SOURCE_ID'),
 )
 def test_registry_mode_requires_complete_explicit_selection(missing_variable):
     environ = registry_environment()
@@ -113,7 +113,7 @@ def test_registry_mode_returns_canonical_source_config():
     assert config is expected
     assert isinstance(config, SourceConfig)
     assert registry.requested_ids == ['pve-infra-test']
-    assert received == [('postgresql://registry.invalid/test', 'infra_sync')]
+    assert received == [('postgresql://registry.invalid/test', 'netbox_sync')]
 
 
 def test_registry_all_loads_runnable_sources_without_source_id():

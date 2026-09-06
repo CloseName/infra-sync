@@ -17,6 +17,6 @@ jobs:
 
       - run: pip install -r requirements-dev.txt
 
-      - run: pylint --fail-under=9.0 --max-line-length=120 netbox_pve_sync
+      - run: pylint --fail-under=9.0 --max-line-length=120 netbox_sync
 
       - run: pytest -q

@@ -40,7 +40,7 @@ from .run_reader import PostgresRunReader
 from .worker_health import WorkerHealthClient
 from .schedule_client import ScheduleRequestError, ScheduleWorkerClient
 
-LOGGER = logging.getLogger('infra_sync.api')
+LOGGER = logging.getLogger('netbox_sync.api')
 
 
 def _error(request, status, code, message):
@@ -155,7 +155,7 @@ def _install_boundaries(app, settings):
                         or origin.scheme != request.url.scheme or origin.path not in ('', '/')
                         or origin.query or origin.fragment or origin.username is not None
                         or request.headers.get('sec-fetch-site', 'same-origin') not in ('same-origin', 'none')
-                        or request.headers.get('x-infra-sync-csrf') != 'same-origin'
+                        or request.headers.get('x-netbox-sync-csrf') != 'same-origin'
                         or request.headers.get('content-type', '').split(';')[0] != 'application/json'):
                     response = _error(request, 403, 'API_WRITE_FORBIDDEN', 'Same-origin write protection failed')
                 elif (not request.headers.get('content-length', '').isdigit()
@@ -226,7 +226,7 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
     schedule_service = schedule_service or ScheduleService(
         source_service, PostgresRunReader(settings),
         ScheduleWorkerClient(settings.schedule_socket), settings.diagnostics_stale_seconds)
-    app = FastAPI(title='Infra Sync', version=application_version(),
+    app = FastAPI(title='NetBox Sync', version=application_version(),
                   docs_url=None, redoc_url=None, openapi_url=None, debug=False)
     _install_boundaries(app, settings)
     router = APIRouter(prefix='/api/v1')

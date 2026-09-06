@@ -15,7 +15,7 @@ test('sync plan client uses protected POST and validates canonical response', as
   assert.deepEqual(await buildSyncPlan('pve-test', new AbortController().signal), plan);
   const [, options] = mock.mock.calls[0].arguments;
   assert.equal(options.method, 'POST');
-  assert.equal(options.headers['X-Infra-Sync-CSRF'], 'same-origin');
+  assert.equal(options.headers['X-NetBox-Sync-CSRF'], 'same-origin');
 });
 
 test('sync plan rejects malformed action and digest', async (context) => {

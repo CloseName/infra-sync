@@ -1,10 +1,10 @@
 services:
-  infra-netbox-sync:
+  netbox-sync:
     build:
       context: .
       dockerfile: Dockerfile
 
-    container_name: infra-netbox-sync
+    container_name: netbox-sync
 
     environment:
       SYNC_MODE: inventory
@@ -29,11 +29,11 @@ services:
 
     volumes:
       # Separate root avoids nesting legacy file mounts inside a read-only bind.
-      - ${INFRA_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/run/secrets/infra-sync-sources:ro
+      - ${NETBOX_SYNC_SOURCE_SECRET_DIR:-../secrets/sources}:/run/secrets/netbox-sync-sources:ro
       - ../secrets/proxmox_token_id:/run/secrets/proxmox_token_id:ro
       - ../secrets/proxmox_token_secret:/run/secrets/proxmox_token_secret:ro
       - ../secrets/netbox_api_token:/run/secrets/netbox_api_token:ro
-      - ../secrets/esxi_infra_sync_password:/run/secrets/infra-sync/esxi_infra_sync_password:ro
+      - ../secrets/esxi_infra_sync_password:/run/secrets/netbox-sync/esxi_infra_sync_password:ro
 
     networks:
       - netbox

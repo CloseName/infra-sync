@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Supported Infra Sync backup, inspection, verification and fresh restore tool."""
+"""Supported NetBox Sync backup, inspection, verification and fresh restore tool."""
 
 import argparse
 import datetime as dt
@@ -24,29 +24,43 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from deploy import install
-from netbox_pve_sync.deployment import PASSWORD_FILES, RESTORE_BOOTSTRAP_FILE
+from netbox_sync.deployment import PASSWORD_FILES, RESTORE_BOOTSTRAP_FILE
 
 
 FORMAT_VERSION = 1
-ALEMBIC_CHAIN = ('0001_registry_baseline', '0002_sync_run_history')
+ALEMBIC_CHAIN = (
+    '0001_registry_baseline', '0002_sync_run_history', '0003_netbox_sync_naming')
 ALEMBIC_HEAD = ALEMBIC_CHAIN[-1]
+PRODUCT = 'NetBox Sync'
+DATABASE_NAME = 'netbox_sync'
+SCHEMA_NAME = 'netbox_sync'
+LEGACY_PRODUCT = 'Infra Sync'
+LEGACY_DATABASE_NAME = 'infra_sync'
+LEGACY_SCHEMA_NAME = 'infra_sync'
 CONFIG_FILES = install.CONFIG_NAMES
 STATE_DIRS = ('config', 'secrets')
 REQUIRED_SECRET_DIRS = ('infrastructure', 'sources', 'netbox')
-BROKER_XATTRS = (
-    'user.infra_sync.operation', 'user.infra_sync.receipt', 'user.infra_sync.complete')
+BROKER_XATTR_SETS = (
+    ('user.netbox_sync.operation', 'user.netbox_sync.receipt', 'user.netbox_sync.complete'),
+    ('user.infra_sync.operation', 'user.infra_sync.receipt', 'user.infra_sync.complete'),
+)
+BROKER_XATTRS = tuple(attribute for group in BROKER_XATTR_SETS for attribute in group)
+VALID_BROKER_XATTR_SETS = frozenset({
+    frozenset(BROKER_XATTR_SETS[0]), frozenset(BROKER_XATTR_SETS[1]),
+    frozenset(BROKER_XATTRS),
+})
 PAYLOAD_FILES = ('database.dump', 'state.tar', 'manifest.json')
 FOUNDATION_TABLES = ('alembic_version', 'schema_meta', 'sources', 'sync_runs')
 SAFE_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 SAFE_SCHEMA = re.compile(r'^[A-Za-z_][A-Za-z0-9_]{0,62}$')
 MAINTENANCE_SERVICES = (
-    'infra-sync-api', 'infra-sync-secret-broker', 'infra-sync-discovery-worker',
-    'infra-sync-apply-worker', 'infra-sync-schedule-worker')
+    'netbox-sync-api', 'netbox-sync-secret-broker', 'netbox-sync-discovery-worker',
+    'netbox-sync-apply-worker', 'netbox-sync-schedule-worker')
 HOST_LOCAL_COMPOSE_KEYS = (
-    'INFRA_SYNC_COMPOSE_PROJECT', 'INFRA_SYNC_IMAGE', 'INFRA_SYNC_CONFIG_DIR',
-    'INFRA_SYNC_INFRA_SECRET_DIR', 'INFRA_SYNC_SOURCE_SECRET_DIR',
-    'INFRA_SYNC_NETBOX_SECRET_DIR', 'INFRA_SYNC_APPLY_LOCK_DIR',
-    'INFRA_SYNC_POSTGRES_VOLUME', 'INFRA_SYNC_WEB_PORT')
+    'NETBOX_SYNC_COMPOSE_PROJECT', 'NETBOX_SYNC_IMAGE', 'NETBOX_SYNC_CONFIG_DIR',
+    'NETBOX_SYNC_INFRA_SECRET_DIR', 'NETBOX_SYNC_SOURCE_SECRET_DIR',
+    'NETBOX_SYNC_NETBOX_SECRET_DIR', 'NETBOX_SYNC_APPLY_LOCK_DIR',
+    'NETBOX_SYNC_POSTGRES_VOLUME', 'NETBOX_SYNC_WEB_PORT')
 
 
 class BackupError(RuntimeError):
@@ -81,7 +95,7 @@ def _utc_now():
 
 def _application_version():
     try:
-        return importlib.metadata.version('netbox-pve-sync')
+        return importlib.metadata.version('netbox-sync')
     except importlib.metadata.PackageNotFoundError:
         return 'unpackaged'
 
@@ -179,7 +193,7 @@ def _file_metadata(root):  # pylint: disable=too-many-locals,too-many-nested-blo
                             BROKER_XATTRS)
                     except (AttributeError, OSError) as exc:
                         raise BackupError('source secret xattr contract is unavailable') from exc
-                    if present and present != set(BROKER_XATTRS):
+                    if present and frozenset(present) not in VALID_BROKER_XATTR_SETS:
                         raise BackupError('broker source secret xattrs are incomplete')
                     for attribute in sorted(present):
                         try:
@@ -238,7 +252,7 @@ class DatabaseTool:
         self.environ = dict(environ or os.environ)
         if mode not in ('bundled', 'external'):
             raise BackupError('unsupported PostgreSQL mode')
-        if mode == 'external' and not self.environ.get('INFRA_SYNC_BACKUP_DSN', '').strip():
+        if mode == 'external' and not self.environ.get('NETBOX_SYNC_BACKUP_DSN', '').strip():
             raise BackupError('external PostgreSQL backup DSN is not configured')
 
     def _command(self, executable, *arguments):
@@ -253,7 +267,7 @@ class DatabaseTool:
     def _environment(self):
         environment = self.environ.copy()
         if self.mode == 'external':
-            dsn = environment.pop('INFRA_SYNC_BACKUP_DSN')
+            dsn = environment.pop('NETBOX_SYNC_BACKUP_DSN')
             try:
                 settings = conninfo_to_dict(dsn)
             except Exception as exc:  # pylint: disable=broad-exception-caught
@@ -270,13 +284,13 @@ class DatabaseTool:
 
     def _connection_arguments(self):
         return (() if self.mode == 'external' else
-                ('--username', 'infra_sync_bootstrap', '--dbname', 'infra_sync'))
+                ('--username', 'netbox_sync_bootstrap', '--dbname', DATABASE_NAME))
 
     def _restore_connection_arguments(self):
         if self.mode != 'external':
-            return '--username', 'infra_sync_bootstrap', '--dbname', 'infra_sync'
+            return '--username', 'netbox_sync_bootstrap', '--dbname', DATABASE_NAME
         try:
-            database = conninfo_to_dict(self.environ['INFRA_SYNC_BACKUP_DSN']).get('dbname')
+            database = conninfo_to_dict(self.environ['NETBOX_SYNC_BACKUP_DSN']).get('dbname')
         except Exception as exc:  # pylint: disable=broad-exception-caught
             raise BackupError('external PostgreSQL backup DSN is invalid') from exc
         if not database:
@@ -314,9 +328,9 @@ class DatabaseTool:
         """Read version and count metadata included in the safe manifest."""
         values = self.query(
             "SELECT current_setting('server_version_num'), "
-            "COALESCE((SELECT version_num FROM infra_sync.alembic_version LIMIT 1), ''), "
-            "(SELECT count(*) FROM infra_sync.sources), "
-            "(SELECT count(*) FROM infra_sync.sync_runs)")
+            f"COALESCE((SELECT version_num FROM {SCHEMA_NAME}.alembic_version LIMIT 1), ''), "
+            f"(SELECT count(*) FROM {SCHEMA_NAME}.sources), "
+            f"(SELECT count(*) FROM {SCHEMA_NAME}.sync_runs)")
         if len(values) != 1 or len(values[0].split('|')) != 4:
             raise BackupError('database metadata is unavailable')
         version, revision, sources, runs = values[0].split('|')
@@ -330,7 +344,7 @@ class DatabaseTool:
         """Read logical credential references without resolving secret values."""
         rows = self.query(
             'SELECT source_instance, token_id_provider, token_id_key, '
-            'token_secret_provider, token_secret_key FROM infra_sync.sources '
+            f'token_secret_provider, token_secret_key FROM {SCHEMA_NAME}.sources '
             'ORDER BY source_instance')
         references = []
         for row in rows:
@@ -345,9 +359,9 @@ class DatabaseTool:
     def dump(self, destination):
         """Write one standard PostgreSQL custom-format dump."""
         connection = (() if self.mode == 'external' else
-                      ('--username', 'infra_sync_owner', '--dbname', 'infra_sync'))
+                      ('--username', 'netbox_sync_owner', '--dbname', DATABASE_NAME))
         self._run('pg_dump', (
-            '--format=custom', '--no-owner', '--no-acl', '--schema=infra_sync',
+            '--format=custom', '--no-owner', '--no-acl', f'--schema={SCHEMA_NAME}',
             *connection),
             output_file=destination)
 
@@ -358,10 +372,10 @@ class DatabaseTool:
     def target_counts(self):
         """Return registry/history counts, treating absent Foundation tables as empty."""
         values = self.query(
-            "SELECT CASE WHEN to_regclass('infra_sync.sources') IS NULL THEN 0 "
-            "ELSE (SELECT count(*) FROM infra_sync.sources) END, "
-            "CASE WHEN to_regclass('infra_sync.sync_runs') IS NULL THEN 0 "
-            "ELSE (SELECT count(*) FROM infra_sync.sync_runs) END")
+            f"SELECT CASE WHEN to_regclass('{SCHEMA_NAME}.sources') IS NULL THEN 0 "
+            f"ELSE (SELECT count(*) FROM {SCHEMA_NAME}.sources) END, "
+            f"CASE WHEN to_regclass('{SCHEMA_NAME}.sync_runs') IS NULL THEN 0 "
+            f"ELSE (SELECT count(*) FROM {SCHEMA_NAME}.sync_runs) END")
         if len(values) != 1:
             raise BackupError('restore target state is unavailable')
         sources, runs = values[0].split('|')
@@ -371,7 +385,7 @@ class DatabaseTool:
         """Reject unknown schemas even when their application tables are empty."""
         values = self.query(
             "SELECT COALESCE(string_agg(tablename, ',' ORDER BY tablename), '') "
-            "FROM pg_tables WHERE schemaname='infra_sync'")
+            f"FROM pg_tables WHERE schemaname='{SCHEMA_NAME}'")
         if values != [','.join(FOUNDATION_TABLES)]:
             raise BackupError('fresh restore target is not an exact Foundation schema')
 
@@ -387,9 +401,9 @@ class DatabaseTool:
         connection = self._restore_connection_arguments()
         self._run('pg_restore', (
             '--exit-on-error', '--clean', '--if-exists', '--no-owner', '--no-acl',
-            '--role=infra_sync_owner', *connection), input_file=dump)
+            '--role=netbox_sync_owner', *connection), input_file=dump)
 
-    def restore_fresh(self, dump, maintenance):
+    def restore_fresh(self, dump, maintenance, source_schema=SCHEMA_NAME):
         """Replace only an exact, empty Foundation target under maintenance."""
         if not maintenance.authorizes_fresh_restore(self.root, self.mode):
             raise BackupError('fresh restore maintenance boundary is unavailable')
@@ -399,22 +413,29 @@ class DatabaseTool:
         # Older reviewed dumps cannot name objects introduced by newer revisions.
         # Delete only the exact, prevalidated Foundation allowlist; never CASCADE.
         cleanup = '; '.join(
-            f'DROP TABLE IF EXISTS infra_sync.{name}'
+            f'DROP TABLE IF EXISTS {SCHEMA_NAME}.{name}'
             for name in reversed(FOUNDATION_TABLES)
-        ) + '; DROP SCHEMA infra_sync'
+        ) + f'; DROP SCHEMA {SCHEMA_NAME}'
         self._run('psql', (
             '--no-psqlrc', '--quiet', *self._connection_arguments(),
             '--command', cleanup))
         connection = self._restore_connection_arguments()
         self._run('pg_restore', (
             '--exit-on-error', '--no-owner', '--no-acl',
-            '--role=infra_sync_owner', *connection), input_file=dump)
+            '--role=netbox_sync_owner', *connection), input_file=dump)
+        if source_schema == LEGACY_SCHEMA_NAME:
+            self._run('psql', (
+                '--no-psqlrc', '--quiet', *self._connection_arguments(), '--command',
+                f'ALTER SCHEMA {LEGACY_SCHEMA_NAME} RENAME TO {SCHEMA_NAME}'))
+        elif source_schema != SCHEMA_NAME:
+            raise BackupError('backup schema metadata is unsupported')
 
 
 def _tar_create(root, destination):
     command = [
         'tar', '--create', '--format=pax', '--xattrs',
-        '--xattrs-include=user.infra_sync.*', '--numeric-owner',
+        '--xattrs-include=user.netbox_sync.*', '--xattrs-include=user.infra_sync.*',
+        '--numeric-owner',
         '--file', str(destination), '--directory', str(root), *STATE_DIRS,
     ]
     result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
@@ -449,7 +470,8 @@ def _tar_members(archive):
 def _tar_extract(archive, destination):
     _tar_members(archive)
     result = subprocess.run([
-        'tar', '--extract', '--xattrs', '--xattrs-include=user.infra_sync.*',
+        'tar', '--extract', '--xattrs', '--xattrs-include=user.netbox_sync.*',
+        '--xattrs-include=user.infra_sync.*',
         '--numeric-owner', '--same-owner', '--same-permissions', '--file', str(archive),
         '--directory', str(destination),
     ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False)  # noqa: S603
@@ -478,6 +500,11 @@ def _load_manifest(bundle):
         raise BackupError('backup format is unsupported')
     if payload['checksum_algorithm'] != 'SHA-256':
         raise BackupError('backup checksum algorithm is unsupported')
+    identity = (payload['product'], payload['database_name'], payload['schema_name'])
+    if identity not in {
+            (PRODUCT, DATABASE_NAME, SCHEMA_NAME),
+            (LEGACY_PRODUCT, LEGACY_DATABASE_NAME, LEGACY_SCHEMA_NAME)}:
+        raise BackupError('backup product or database identity is unsupported')
     if not SAFE_SCHEMA.fullmatch(payload['schema_name']):
         raise BackupError('backup schema metadata is invalid')
     if not isinstance(payload['files'], list):
@@ -491,7 +518,9 @@ def _load_manifest(bundle):
                 or not re.fullmatch(r'0[0-7]{3}', record['mode'])
                 or not isinstance(record['xattrs'], dict)):
             raise BackupError('backup file metadata is invalid')
-        if not set(record['xattrs']).issubset(BROKER_XATTRS):
+        recorded_xattrs = frozenset(record['xattrs'])
+        if (not recorded_xattrs.issubset(BROKER_XATTRS)
+                or recorded_xattrs not in VALID_BROKER_XATTR_SETS | {frozenset()}):
             raise BackupError('backup xattr metadata is invalid')
         if not all(re.fullmatch(r'sha256:[a-f0-9]{64}', item)
                    for item in record['xattrs'].values()):
@@ -581,11 +610,21 @@ class Maintenance:
         self.writers_stopped = False
 
     def __enter__(self):
+        if not self.no_systemd and self.root == Path('/opt/netbox-sync'):
+            legacy_timer = install.run(
+                ['systemctl', 'is-active', '--quiet', 'infra-netbox-sync.timer'],
+                check=False)
+            legacy_containers = install.run([
+                'docker', 'ps', '--quiet', '--filter',
+                'label=com.docker.compose.project=infra-sync'],
+                check=False, capture_output=True)
+            if legacy_timer.returncode == 0 or legacy_containers.stdout.strip():
+                raise BackupError('legacy runtime must be stopped before maintenance')
         if not self.no_systemd:
             self.timer_active = install.stop_timer()
         self.timer_stopped = True
-        lock = self.root / 'run/apply.lock' if self.root != Path('/opt/infra-sync') \
-            else Path('/run/infra-sync/apply.lock')
+        lock = self.root / 'run/apply.lock' if self.root != Path('/opt/netbox-sync') \
+            else Path('/run/netbox-sync/apply.lock')
         self.lock = install.shared_apply_lock(lock)
         try:
             self.lock.__enter__()
@@ -602,7 +641,7 @@ class Maintenance:
             if self.lock_entered:
                 self.lock.__exit__(*sys.exc_info())
             if self.restore_after and self.timer_active and not self.no_systemd:
-                install.run(['systemctl', 'start', 'infra-netbox-sync.timer'], check=False)
+                install.run(['systemctl', 'start', 'netbox-sync.timer'], check=False)
             raise
         return self
 
@@ -625,7 +664,7 @@ class Maintenance:
                         self.root, 'up', '-d', *self.running, mode=self.postgres_mode),
                         check=True)
                 if self.timer_active and not self.no_systemd:
-                    install.run(['systemctl', 'start', 'infra-netbox-sync.timer'])
+                    install.run(['systemctl', 'start', 'netbox-sync.timer'])
         finally:
             if self.lock_entered:
                 self.lock.__exit__(kind, value, traceback)
@@ -647,7 +686,7 @@ def create_backup(  # pylint: disable=too-many-arguments
     output.chmod(0o700)
     created_at = now or _utc_now()
     timestamp = created_at.strftime('%Y%m%d-%H%M%S')
-    name = f'infra-sync-backup-{timestamp}'
+    name = f'netbox-sync-backup-{timestamp}'
     final = output / name
     if final.exists():
         raise BackupError('backup destination already exists')
@@ -668,12 +707,12 @@ def create_backup(  # pylint: disable=too-many-arguments
             manifest = {
                 'backup_format_version': FORMAT_VERSION,
                 'created_at': created_at.isoformat().replace('+00:00', 'Z'),
-                'product': 'Infra Sync', 'application_version': _application_version(),
+                'product': PRODUCT, 'application_version': _application_version(),
                 'release_id': release_id or active, 'active_release_id': active,
-                'compose_project': compose.get('INFRA_SYNC_COMPOSE_PROJECT', 'infra-sync'),
+                'compose_project': compose.get('NETBOX_SYNC_COMPOSE_PROJECT', 'netbox-sync'),
                 'postgres_major': metadata['postgres_major'],
-                'postgres_mode': database.mode, 'database_name': 'infra_sync',
-                'schema_name': 'infra_sync',
+                'postgres_mode': database.mode, 'database_name': DATABASE_NAME,
+                'schema_name': SCHEMA_NAME,
                 'alembic_revision': metadata['alembic_revision'],
                 'source_count': metadata['source_count'], 'run_count': metadata['run_count'],
                 'secret_file_count': sum(item['path'].startswith('secrets/') for item in files),
@@ -784,7 +823,7 @@ def _start_restored_runtime(root, postgres_mode):
                      if postgres_mode == 'external' else ())
         install.start_runtime(prepared, overrides=overrides)
         result = install.run(_compose_command(
-            root, 'exec', '-T', 'infra-sync-api', 'python', '-c',
+            root, 'exec', '-T', 'netbox-sync-api', 'python', '-c',
             "import urllib.request; urllib.request.urlopen("
             "'http://127.0.0.1:8000/api/v1/diagnostics', timeout=5).close()",
             mode=postgres_mode), check=False)
@@ -817,9 +856,12 @@ def restore_fresh(root, bundle, database, *, no_systemd=False, check_only=False)
             raise BackupError('fresh restore target contains registry or run-history rows')
         _tar_extract(bundle / 'state.tar', stage)
         _validate_restored_files(stage, manifest)
-        database.restore_fresh(bundle / 'database.dump', maintenance)
-        _run_deployment_tool(root, 'infra-sync-migrate', postgres_mode=database.mode)
-        _run_deployment_tool(root, 'infra-sync-db-grants', postgres_mode=database.mode)
+        if manifest['product'] == LEGACY_PRODUCT:
+            install.migrate_legacy_environment(stage, apply=True)
+        database.restore_fresh(
+            bundle / 'database.dump', maintenance, manifest['schema_name'])
+        _run_deployment_tool(root, 'netbox-sync-migrate', postgres_mode=database.mode)
+        _run_deployment_tool(root, 'netbox-sync-db-grants', postgres_mode=database.mode)
         restored = database.metadata()
         if (restored['source_count'], restored['run_count']) != (
                 manifest['source_count'], manifest['run_count']):
@@ -831,8 +873,8 @@ def restore_fresh(root, bundle, database, *, no_systemd=False, check_only=False)
         transition = _prepare_password_transition(root, stage)
         try:
             environment = os.environ.copy()
-            environment['INFRA_SYNC_RESTORE_PASSWORD_DIR'] = str(transition)
-            _run_deployment_tool(root, 'infra-sync-db-restore-roles', environment,
+            environment['NETBOX_SYNC_RESTORE_PASSWORD_DIR'] = str(transition)
+            _run_deployment_tool(root, 'netbox-sync-db-restore-roles', environment,
                                  postgres_mode=database.mode)
         finally:
             shutil.rmtree(transition, ignore_errors=True)
@@ -859,8 +901,8 @@ def inspect_bundle(bundle, database=None):
 
 def parse_args(argv=None):
     """Parse bounded backup/restore operator commands."""
-    parser = argparse.ArgumentParser(description='Infra Sync backup and fresh restore')
-    parser.add_argument('--root', type=Path, default=Path('/opt/infra-sync'))
+    parser = argparse.ArgumentParser(description='NetBox Sync backup and fresh restore')
+    parser.add_argument('--root', type=Path, default=Path('/opt/netbox-sync'))
     parser.add_argument('--postgres-mode', choices=('bundled', 'external'), default='bundled')
     parser.add_argument('--no-systemd', action='store_true', help=argparse.SUPPRESS)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -885,7 +927,9 @@ def main(argv=None):
     try:
         if args.command == 'list':
             directory = (args.directory or root / 'backups').resolve()
-            for bundle in sorted(directory.glob('infra-sync-backup-*')):
+            bundles = set(directory.glob('netbox-sync-backup-*'))
+            bundles.update(directory.glob('infra-sync-backup-*'))
+            for bundle in sorted(bundles):
                 try:
                     summary = inspect_bundle(bundle)
                     print(json.dumps({'bundle': bundle.name, **summary}, sort_keys=True))

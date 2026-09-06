@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-import netbox_pve_sync
-from netbox_pve_sync.esxi_discovery import discover_hosts
-from netbox_pve_sync.esxi_migration import ObjectMigrationClassification
-from netbox_pve_sync.esxi_runtime import execute_esxi_runtime
-from netbox_pve_sync.netbox_metadata import build_device_custom_fields
-from netbox_pve_sync.netbox_vm_metadata import build_vm_custom_fields
-from netbox_pve_sync.netbox_vm_network_apply import VMNetworkApplyError
-from netbox_pve_sync.source_config import SecretReference, SourceCredentials
+import netbox_sync
+from netbox_sync.esxi_discovery import discover_hosts
+from netbox_sync.esxi_migration import ObjectMigrationClassification
+from netbox_sync.esxi_runtime import execute_esxi_runtime
+from netbox_sync.netbox_metadata import build_device_custom_fields
+from netbox_sync.netbox_vm_metadata import build_vm_custom_fields
+from netbox_sync.netbox_vm_network_apply import VMNetworkApplyError
+from netbox_sync.source_config import SecretReference, SourceCredentials
 
 from tests.fakes import FakeRecord
 from tests.fakes.esxi import fake_esxi_service
@@ -31,7 +31,7 @@ def _config():
         source_instance='esxi-infra-test',
         source_type='esxi',
         legacy_identity_owner=False,
-        credentials=SourceCredentials.for_password('infra-sync', password),
+        credentials=SourceCredentials.for_password('netbox-sync', password),
     )
 
 
@@ -200,16 +200,16 @@ def test_normal_dispatch_plan_routes_esxi_to_zero_write_runtime(
 ):
     hosts, _, _ = _setup(fake_netbox)
     calls = []
-    monkeypatch.setattr(netbox_pve_sync.pynetbox, 'api', lambda **_kwargs: fake_netbox)
+    monkeypatch.setattr(netbox_sync.pynetbox, 'api', lambda **_kwargs: fake_netbox)
     monkeypatch.setattr(
-        netbox_pve_sync,
+        netbox_sync,
         'execute_esxi_runtime',
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
     monkeypatch.setenv('NB_API_URL', 'https://netbox.invalid')
     monkeypatch.setenv('NB_API_TOKEN', 'read-token')
 
-    netbox_pve_sync.execute_discovered_source(_config(), hosts, 'plan')
+    netbox_sync.execute_discovered_source(_config(), hosts, 'plan')
 
     assert calls[0][0] == (fake_netbox, hosts, _config())
     assert calls[0][1] == {'confirmed': False}
@@ -221,25 +221,25 @@ def test_normal_source_dispatch_selects_each_adapter(monkeypatch):
     proxmox = sample_source_config()
     esxi = _config()
     monkeypatch.setattr(
-        netbox_pve_sync,
+        netbox_sync,
         'execute_proxmox_source',
         lambda config, mode: calls.append(('proxmox', config.id, mode)),
     )
     monkeypatch.setattr(
-        netbox_pve_sync,
+        netbox_sync,
         'execute_esxi_source',
         lambda config, mode, reconcile: calls.append(
             ('esxi', config.id, mode, reconcile)
         ),
     )
 
-    dispatch = netbox_pve_sync._source_dispatch('plan')
+    dispatch = netbox_sync._source_dispatch('plan')
     dispatch.execute(proxmox)
     dispatch.execute(esxi)
 
     assert calls == [
         ('proxmox', proxmox.id, 'plan'),
-        ('esxi', esxi.id, 'plan', netbox_pve_sync.execute_discovered_source),
+        ('esxi', esxi.id, 'plan', netbox_sync.execute_discovered_source),
     ]
 
 
@@ -257,5 +257,5 @@ def test_compose_mounts_esxi_password_at_fixed_runtime_path():
 
     assert (
         '../secrets/esxi_infra_sync_password:'
-        '/run/secrets/infra-sync/esxi_infra_sync_password:ro'
+        '/run/secrets/netbox-sync/esxi_infra_sync_password:ro'
     ) in compose

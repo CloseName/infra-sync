@@ -9,11 +9,11 @@ from uuid import UUID
 
 import pytest
 
-from netbox_pve_sync.apply_worker import (ApplySupervisor, ApplyWorkerError, _receive,
+from netbox_sync.apply_worker import (ApplySupervisor, ApplyWorkerError, _receive,
                                           child_main)
-from netbox_pve_sync.application.confirmation import ConfirmationClaims, ConfirmationStore
-from netbox_pve_sync.discovery_worker import _safe_environment
-from netbox_pve_sync.run_history import RunStatus
+from netbox_sync.application.confirmation import ConfirmationClaims, ConfirmationStore
+from netbox_sync.discovery_worker import _safe_environment
+from netbox_sync.run_history import RunStatus
 
 from tests.sample_data import sample_source_config
 
@@ -46,11 +46,11 @@ def test_apply_child_redirects_executor_output_and_emits_only_json(monkeypatch):
         print('guarded apply output')
         return {'status': 'SUCCEEDED', 'plan_digest': 'a' * 64}
 
-    monkeypatch.setattr('netbox_pve_sync.apply_worker.execute_child', execute)
-    monkeypatch.setattr('netbox_pve_sync.apply_worker.sys.stdin', ChildInput(
+    monkeypatch.setattr('netbox_sync.apply_worker.execute_child', execute)
+    monkeypatch.setattr('netbox_sync.apply_worker.sys.stdin', ChildInput(
         {'operation': 'apply'}))
-    monkeypatch.setattr('netbox_pve_sync.apply_worker.sys.stdout', output)
-    monkeypatch.setattr('netbox_pve_sync.apply_worker.sys.stderr', errors)
+    monkeypatch.setattr('netbox_sync.apply_worker.sys.stdout', output)
+    monkeypatch.setattr('netbox_sync.apply_worker.sys.stderr', errors)
     child_main()
     assert json.loads(output.getvalue()) == {'result': {
         'status': 'SUCCEEDED', 'plan_digest': 'a' * 64,
@@ -83,14 +83,14 @@ def test_worker_protocol_rejects_commands_operations_and_paths(payload):
 
 
 def test_apply_child_environment_has_no_registration_or_registry_writer_credentials(monkeypatch):
-    monkeypatch.setenv('INFRA_SYNC_REGISTRATION_DSN', 'registration-secret')
-    monkeypatch.setenv('INFRA_SYNC_APPLY_REGISTRY_DSN', 'reader-secret')
-    monkeypatch.setenv('INFRA_SYNC_RUN_WRITER_DSN', 'run-writer-secret')
+    monkeypatch.setenv('NETBOX_SYNC_REGISTRATION_DSN', 'registration-secret')
+    monkeypatch.setenv('NETBOX_SYNC_APPLY_REGISTRY_DSN', 'reader-secret')
+    monkeypatch.setenv('NETBOX_SYNC_RUN_WRITER_DSN', 'run-writer-secret')
     monkeypatch.setenv('NB_APPLY_API_TOKEN', 'apply-secret')
     environment = _safe_environment()
-    assert 'INFRA_SYNC_REGISTRATION_DSN' not in environment
-    assert 'INFRA_SYNC_APPLY_REGISTRY_DSN' not in environment
-    assert 'INFRA_SYNC_RUN_WRITER_DSN' not in environment
+    assert 'NETBOX_SYNC_REGISTRATION_DSN' not in environment
+    assert 'NETBOX_SYNC_APPLY_REGISTRY_DSN' not in environment
+    assert 'NETBOX_SYNC_RUN_WRITER_DSN' not in environment
     assert 'NB_APPLY_API_TOKEN' not in environment
 
 
@@ -149,7 +149,7 @@ class RunRecorder:
 def _manual_supervisor(monkeypatch, child):
     config = sample_source_config()
     confirmations, recorder = ConfirmationStore(), RunRecorder()
-    supervisor = ApplySupervisor('', '', '', '', '', '', '/run/infra-sync/apply.lock',
+    supervisor = ApplySupervisor('', '', '', '', '', '', '/run/netbox-sync/apply.lock',
                                  confirmations=confirmations, run_repository=recorder)
     monkeypatch.setattr(supervisor, '_source', lambda _instance: config)
     monkeypatch.setattr(supervisor, '_payload', lambda *_args: {'operation': 'apply'})
@@ -157,9 +157,9 @@ def _manual_supervisor(monkeypatch, child):
     monkeypatch.setitem(sys.modules, 'fcntl', SimpleNamespace(
         LOCK_EX=1, LOCK_NB=2, flock=lambda *_args: None,
     ))
-    monkeypatch.setattr('netbox_pve_sync.apply_worker.os.O_NOFOLLOW', 0, raising=False)
-    monkeypatch.setattr('netbox_pve_sync.apply_worker.os.open', lambda *_args: 99)
-    monkeypatch.setattr('netbox_pve_sync.apply_worker.os.close', lambda _fd: None)
+    monkeypatch.setattr('netbox_sync.apply_worker.os.O_NOFOLLOW', 0, raising=False)
+    monkeypatch.setattr('netbox_sync.apply_worker.os.open', lambda *_args: 99)
+    monkeypatch.setattr('netbox_sync.apply_worker.os.close', lambda _fd: None)
     claims = ConfirmationClaims(config.source_instance, config.id, 'a' * 64, 'web-5a-1',
                                 'source-fingerprint', 'target-fingerprint')
     return supervisor, confirmations.issue(claims), recorder

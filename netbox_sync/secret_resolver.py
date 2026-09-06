@@ -8,8 +8,10 @@ from pathlib import Path
 from .source_config import SecretReference, SourceCredentials
 
 
-DEFAULT_SECRET_ROOT = Path('/run/secrets/infra-sync')
-DEFAULT_SOURCE_SECRET_ROOT = Path('/run/secrets/infra-sync-sources')
+DEFAULT_SECRET_ROOT = Path('/run/secrets/netbox-sync')
+DEFAULT_SOURCE_SECRET_ROOT = Path('/run/secrets/netbox-sync-sources')
+LEGACY_SECRET_ROOTS = (
+    Path('/run/secrets/infra-sync'), Path('/run/secrets/infra-sync-sources'))
 LOGICAL_SECRET_KEY = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
 
 
@@ -33,10 +35,12 @@ class FileSecretResolver:
                  max_secret_bytes=None):
         self._environ = os.environ if environ is None else environ
         self._secret_root = Path(secret_root)
-        self._source_secret_root = (
-            Path(source_secret_root) if source_secret_root is not None else
-            DEFAULT_SOURCE_SECRET_ROOT if self._secret_root == DEFAULT_SECRET_ROOT else None
-        )
+        if source_secret_root is not None:
+            self._fallback_secret_roots = (Path(source_secret_root),)
+        elif self._secret_root == DEFAULT_SECRET_ROOT:
+            self._fallback_secret_roots = (DEFAULT_SOURCE_SECRET_ROOT, *LEGACY_SECRET_ROOTS)
+        else:
+            self._fallback_secret_roots = ()
         self._max_secret_bytes = max_secret_bytes
 
     def _read_text(self, path):
@@ -61,10 +65,15 @@ class FileSecretResolver:
             try:
                 value = self._read_text(path)
             except FileNotFoundError:
-                # Preserve legacy priority. Never mask an unreadable/invalid old file.
-                if self._source_secret_root is None:
+                # Prefer canonical roots. Never mask an unreadable/invalid earlier file.
+                for root in self._fallback_secret_roots:
+                    try:
+                        value = self._read_text(root / key)
+                        break
+                    except FileNotFoundError:
+                        continue
+                else:
                     raise
-                value = self._read_text(self._source_secret_root / key)
         except OSError as exc:
             raise SecretResolutionError(
                 f'unable to read configured file secret {key!r}'

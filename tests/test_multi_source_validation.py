@@ -2,13 +2,13 @@
 
 from dataclasses import replace
 
-from netbox_pve_sync.esxi_discovery import discover_hosts as discover_esxi
-from netbox_pve_sync.orchestrator import run_sources
-from netbox_pve_sync.proxmox_discovery import discover_hosts as discover_proxmox
-from netbox_pve_sync.secret_resolver import FileSecretResolver
-from netbox_pve_sync.source_config import SecretReference, SourceCredentials
-from netbox_pve_sync.source_executor import SourceExecutorDispatch
-from netbox_pve_sync.source_identity import (
+from netbox_sync.esxi_discovery import discover_hosts as discover_esxi
+from netbox_sync.orchestrator import run_sources
+from netbox_sync.proxmox_discovery import discover_hosts as discover_proxmox
+from netbox_sync.secret_resolver import FileSecretResolver
+from netbox_sync.source_config import SecretReference, SourceCredentials
+from netbox_sync.source_executor import SourceExecutorDispatch
+from netbox_sync.source_identity import (
     lxc_source_identity,
     qemu_source_identity,
     virtual_machine_source_identity,
