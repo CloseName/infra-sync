@@ -37,7 +37,7 @@ def _prepared(root, old_value='old', new_value='new'):
                  else f'CONFIG_FILE={name}\n')
         (staged / name).write_text(value, encoding='utf-8')
     install.activate_release(root, old)
-    return old, install.PreparedDeployment(root, new, staged, 'netbox-sync-app:new')
+    return old, install.PreparedDeployment(root, new, staged, 'netbox-sync:new')
 
 
 def test_canonical_compose_has_private_bundled_postgres_and_one_app_image():
@@ -186,9 +186,9 @@ def test_generated_configuration_is_role_separated_and_idempotent(tmp_path):
     for relative in ('config', 'secrets/infrastructure', 'secrets/sources',
                      'secrets/netbox'):
         (tmp_path / relative).mkdir(parents=True, exist_ok=True)
-    install.generate_configuration(tmp_path, 'netbox-sync-app:test-release')
+    install.generate_configuration(tmp_path, 'netbox-sync:test-release')
     owner = (tmp_path / 'secrets/infrastructure/owner_password').read_bytes()
-    install.generate_configuration(tmp_path, 'netbox-sync-app:test-release')
+    install.generate_configuration(tmp_path, 'netbox-sync:test-release')
     assert (tmp_path / 'secrets/infrastructure/owner_password').read_bytes() == owner
     api = (tmp_path / 'config/api.env').read_text(encoding='utf-8')
     discovery = (tmp_path / 'config/discovery.env').read_text(encoding='utf-8')
@@ -205,7 +205,7 @@ def test_repeated_configuration_preserves_operator_values_and_adds_missing_keys(
     for relative in ('config', 'secrets/infrastructure', 'secrets/sources',
                      'secrets/netbox'):
         (tmp_path / relative).mkdir(parents=True, exist_ok=True)
-    install.generate_configuration(tmp_path, 'netbox-sync-app:first')
+    install.generate_configuration(tmp_path, 'netbox-sync:first')
     api_path = tmp_path / 'config/api.env'
     api_path.write_text(
         "NETBOX_SYNC_REGISTRY_DSN=host=custom dbname=registry application_name='has spaces'\n"
@@ -215,7 +215,7 @@ def test_repeated_configuration_preserves_operator_values_and_adds_missing_keys(
     discovery_path.write_text(
         'NETBOX_SYNC_DISCOVERY_NB_API_URL=https://netbox.operator.example\n', encoding='utf-8')
 
-    install.generate_configuration(tmp_path, 'netbox-sync-app:second')
+    install.generate_configuration(tmp_path, 'netbox-sync:second')
 
     api = api_path.read_text(encoding='utf-8')
     assert "NETBOX_SYNC_REGISTRY_DSN=host=custom dbname=registry application_name='has spaces'" in api
@@ -224,7 +224,7 @@ def test_repeated_configuration_preserves_operator_values_and_adds_missing_keys(
     assert 'NETBOX_SYNC_REGISTRATION_DSN=' in api  # a new missing known key was appended
     assert ('NETBOX_SYNC_DISCOVERY_NB_API_URL=https://netbox.operator.example' in
             discovery_path.read_text(encoding='utf-8'))
-    assert 'NETBOX_SYNC_IMAGE=netbox-sync-app:second' in (
+    assert 'NETBOX_SYNC_IMAGE=netbox-sync:second' in (
         tmp_path / 'config/compose.env').read_text(encoding='utf-8')
 
 
@@ -248,7 +248,7 @@ def test_config_write_uses_atomic_replace_only_when_content_changes(tmp_path, mo
 def test_prepare_layout_does_not_activate_current(tmp_path):
     source = _release_tree(tmp_path / 'source')
     root = tmp_path / 'target'
-    prepared = install.prepare_layout(root, source, 'release-one', 'netbox-sync-app:one')
+    prepared = install.prepare_layout(root, source, 'release-one', 'netbox-sync:one')
     assert prepared.release == root / 'releases/release-one'
     assert prepared.config.is_dir()
     assert f'NETBOX_SYNC_CONFIG_DIR={prepared.config}' in (

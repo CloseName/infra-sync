@@ -659,7 +659,7 @@ def main(argv=None):
         if args.check:
             print('deployment prerequisites OK')
             return 0
-        image = args.image or f'netbox-sync-app:{args.release_id}'
+        image = args.image or f'netbox-sync:{args.release_id}'
         root = args.root.resolve()
         prepared = prepare_layout(root, args.source.resolve(), args.release_id, image)
         upgrading = current_release(root) is not None

@@ -1,7 +1,7 @@
 name: ${NETBOX_SYNC_COMPOSE_PROJECT:-netbox-sync}
 
 x-app: &app
-  image: ${NETBOX_SYNC_IMAGE:-netbox-sync-app:local}
+  image: ${NETBOX_SYNC_IMAGE:-netbox-sync:local}
   build:
     context: .
     dockerfile: Dockerfile.web
