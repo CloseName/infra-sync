@@ -415,3 +415,19 @@ processed sequentially: two sources are operationally inexpensive; five accumula
 and guest-agent latency; ten can exceed short source intervals. Run History durations and the
 complete tick duration must be reviewed before increasing source count. Parallel apply,
 distributed transactions, and catch-up backlogs are intentionally out of scope.
+
+## Backup and restore boundary
+
+Backup Format v1 owns logical PostgreSQL application state plus canonical `config`
+and `secrets`. It does not copy the PostgreSQL physical volume, runtime sockets/locks,
+containers, images, releases, or checkout. A root-run coordinator stops the timer,
+acquires the same apply-lock inode, and pauses control-plane writers before coupling
+`pg_dump -Fc` with a GNU tar that preserves numeric ownership, modes, and broker
+xattrs. A verified bundle becomes visible through one atomic directory rename.
+
+Fresh restore is the only supported write mode. It rejects populated targets and
+unknown/newer Alembic revisions, restores as `infra_sync_owner`, migrates forward,
+reapplies grants, rotates fixed role passwords from restored protected files, and
+publishes filesystem state from staging. Runtime health is required, while the timer
+remains stopped for explicit read-only validation. See
+[Backup and restore](backup-restore.md).

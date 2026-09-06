@@ -2,6 +2,11 @@
 
 WEB-0 introduces Alembic, isolated from synchronization. Never run this procedure
 against production without an approved backup and restored-copy rehearsal.
+
+Use the supported versioned bundle in [Backup and restore](backup-restore.md). Restore
+recreates fixed roles through tracked provisioning, restores a logical custom-format
+dump, runs only known forward Alembic revisions, and reapplies the grant matrix. It
+rejects newer schema revisions and never merges a populated registry.
 No migration has been run against production by this change.
 
 ## Tooling and execution

@@ -34,7 +34,7 @@ Compose edit.
   secrets/infrastructure/      generated database passwords (0700/0600)
   secrets/sources/             broker-managed source secrets (0700/0600)
   secrets/netbox/              read-token and apply-token files (0700/0600)
-  backups/                     protected hook for the next Backup/Restore stage
+  backups/                     protected complete Backup Format v1 bundles (0700)
   state/                       future persistent operator state
 /run/infra-sync/               shared apply lock (0750)
 ```
@@ -176,8 +176,8 @@ fails before Alembic DDL with safe operator guidance; the installer never perfor
 hidden ownership takeover. Reassign ownership only through a separately reviewed,
 backup-backed transition procedure.
 
-Full backup/restore, final naming, interactive onboarding, RBAC/LDAPS, TLS/reverse proxy,
+Final naming, interactive onboarding, RBAC/LDAPS, TLS/reverse proxy,
 resource limits, run-history retention and stale-run recovery are deliberately deferred.
-The deterministic volume/layout and explicit migrations are the hooks for the next
-Backup/Restore stage. Run history remains unlimited and stale RUNNING rows remain
-diagnostic-only.
+The supported logical backup/fresh-restore workflow is documented in
+[Backup and restore](backup-restore.md). Run history remains unlimited and stale
+RUNNING rows remain diagnostic-only.

@@ -1,6 +1,10 @@
 # Infra Sync
 
 Synchronize infrastructure from multiple virtualization sources, including Proxmox VE and VMware ESXi, to NetBox.
+
+Supported Debian deployments have a versioned logical backup and fresh-restore
+workflow. See [Backup and restore](docs/backup-restore.md); bundles contain credentials
+and must be encrypted before off-host storage.
 This allows automatic tracking of Virtual Machines, disks, IP addresses/prefixes, MAC addresses, VLANs, ...
 
 ## How does it work?

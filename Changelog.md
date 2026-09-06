@@ -4,6 +4,9 @@
 
 ### New
 
+- Add Backup Format v1 with atomic PostgreSQL/config/secret bundles, verification,
+  safe inspection, fixed-role reconstruction, and supported fresh restore.
+
 - Harden the canonical installer with preserving config merges, staged release
   activation, shared-lock upgrade coordination, and legacy ownership preflight.
 - Persist separate manual and scheduled synchronization outcomes in PostgreSQL.
