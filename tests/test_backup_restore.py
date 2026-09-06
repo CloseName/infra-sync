@@ -350,10 +350,26 @@ def test_restore_role_passwords_changes_bootstrap_last(monkeypatch, tmp_path):
                         lambda _env: calls.append('runtime-roles'))
     monkeypatch.setattr(deployment, 'connection_info', lambda *_args: 'redacted')
     monkeypatch.setattr(deployment.psycopg, 'connect', lambda *_args, **_kwargs: Connection())
-    monkeypatch.setattr(deployment, '_execute_role',
-                        lambda _cursor, role, password: calls.append((role, password)))
+    monkeypatch.setattr(deployment, '_rotate_bootstrap_password',
+                        lambda _cursor, password: calls.append(('bootstrap', password)))
     deployment.restore_role_passwords(environment)
-    assert calls == ['runtime-roles', ('infra_sync_bootstrap', 'restored-bootstrap')]
+    assert calls == ['runtime-roles', ('bootstrap', 'restored-bootstrap')]
+
+
+def test_bootstrap_password_rotation_preserves_privileged_role_attributes():
+    statements = []
+
+    class Cursor:
+        def execute(self, statement):
+            statements.append(statement.as_string(None))
+
+    deployment._rotate_bootstrap_password(  # pylint: disable=protected-access
+        Cursor(), 'not-a-real-password')
+    assert statements == [
+        "ALTER ROLE \"infra_sync_bootstrap\" WITH LOGIN PASSWORD "
+        "'not-a-real-password'"
+    ]
+    assert 'NOSUPERUSER' not in statements[0]
 
 
 def test_database_tool_never_places_external_dsn_in_argv(monkeypatch, tmp_path):

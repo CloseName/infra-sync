@@ -117,6 +117,13 @@ def _execute_role(cursor, role, password):
     ).format(sql.Identifier(role), sql.Literal(password)))
 
 
+def _rotate_bootstrap_password(cursor, password):
+    """Rotate the privileged bootstrap login without changing its attributes."""
+    cursor.execute(sql.SQL(
+        'ALTER ROLE {} WITH LOGIN PASSWORD {}'
+    ).format(sql.Identifier('infra_sync_bootstrap'), sql.Literal(password)))
+
+
 def bootstrap_roles(environ=None):
     """Create/rotate fixed runtime roles and establish private DB ownership."""
     environ = environ or os.environ
@@ -165,7 +172,7 @@ def restore_role_passwords(environ=None):
     bootstrap_roles(environ)
     with psycopg.connect(connection_info('bootstrap', environ), autocommit=True) as connection:
         with connection.cursor() as cursor:
-            _execute_role(cursor, 'infra_sync_bootstrap', next_password)
+            _rotate_bootstrap_password(cursor, next_password)
 
 
 def validate_migration_ownership(environ=None):
