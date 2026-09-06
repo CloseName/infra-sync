@@ -869,3 +869,7 @@ no unresolved name/IP/MAC ownership candidate, stable shared-lock contention, in
 history/diagnostics, and reviewed total sequential tick duration. Source deletion, cloud
 providers, vCenter, topology redesign, parallel apply, RBAC, notifications, clean deployment,
 and UI redesign remain separate work.
+
+## UI-0 / UI-1 frontend foundation
+
+See [Frontend foundation](frontend.md) for routing, operational Overview, Sources filtering, and status evidence boundaries.
