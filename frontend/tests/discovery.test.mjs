@@ -26,7 +26,7 @@ test('discovery client rejects malformed result and reports stable errors', asyn
 });
 
 test('source detail keeps discovery review separate from explicit sync controls', () => {
-  const page = readFileSync(new URL('../src/pages/SourcesPage.tsx', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../src/pages/SourceSync.tsx', import.meta.url), 'utf8');
   for (const text of ['Run discovery', 'Running read-only discovery', 'role="alert"',
     'Classification', 'Object kind', 'reason_code', 'summary-grid']) assert.ok(page.includes(text));
   assert.ok(page.includes('Build plan'));

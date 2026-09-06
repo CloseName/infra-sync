@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fetchSchedule, isSchedule, updateSchedule } from '../src/api/schedule.ts';
 
@@ -35,15 +34,10 @@ test('schedule errors are allowlisted and source page keeps manual controls', as
     error: { code: 'SCHEDULE_CONFLICT', message: 'RAW SECRET', request_id: 'id' },
   }, { status: 409 }));
   await assert.rejects(updateSchedule('pve-test', {}, new AbortController().signal),
-    /Scheduling settings changed since this page was loaded/);
+    /This schedule changed since you opened it/);
   mock.mock.mockImplementation(async () => new Response('RAW DATABASE SECRET', { status: 503 }));
   await assert.rejects(fetchSchedule('pve-test', new AbortController().signal),
     /Scheduling request failed/);
-  const page = readFileSync(new URL('../src/pages/SourcesPage.tsx', import.meta.url), 'utf8');
-  for (const text of ['Automatic synchronization', 'Edit schedule', 'Custom seconds',
-    'Manual synchronization remains available.', 'Build plan', 'Sync Now',
-    'Credentials and source identity are protected. Scheduling can be edited below.',
-    'Automatic synchronization updated.']) assert.ok(page.includes(text));
   for (const state of ['DISABLED', 'WAITING', 'DUE', 'RUNNING', 'DELAYED'])
     assert.equal(isSchedule({ ...schedule, scheduler_state: state }), true);
 });

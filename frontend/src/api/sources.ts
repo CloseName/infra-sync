@@ -34,11 +34,13 @@ export function isSource(value: unknown): value is Source {
     && Number.isSafeInteger(value.sync_interval_seconds) && value.sync_interval_seconds > 0;
 }
 
+export class SourceNotFoundError extends Error {}
+
 async function request(path: string, signal: AbortSignal): Promise<unknown> {
   let response: Response;
   try { response = await fetch(path, { signal, cache: 'no-store' }); }
   catch { throw new Error('API unavailable. Check the connection and try again.'); }
-  if (response.status === 404) throw new Error('Source not found. Refresh the source list.');
+  if (response.status === 404) throw new SourceNotFoundError('Source not found. Refresh the source list.');
   if (response.status === 503) throw new Error('Registry or source metadata unavailable. Check System Health.');
   if (!response.ok) throw new Error('API unavailable. Try again.');
   try { return await response.json(); }

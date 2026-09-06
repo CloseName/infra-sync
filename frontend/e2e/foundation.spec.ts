@@ -68,7 +68,7 @@ test("direct routes, active navigation, Back/Forward and refresh", async ({
   await page.getByRole("link", { name: "Source 051", exact: true }).click();
   await expect(page).toHaveURL(/sources\/source-51$/);
   await expect(
-    page.getByRole("heading", { name: "Source details" }),
+    page.getByRole("heading", { name: "Source 051"  }),
   ).toBeVisible();
   await page.screenshot({
     path: "test-results/source-detail.png",
@@ -231,7 +231,7 @@ test("source route remount isolates late discovery results", async ({
   page,
 }) => {
   await fixture(page, 2);
-  await page.goto("/sources/source-1");
+  await page.goto("/sources/source-1/sync");
   let finish;
   await page.route(
     "**/api/v1/sources/source-1/discovery",
@@ -259,7 +259,7 @@ test("source route remount isolates late discovery results", async ({
   await page.getByRole("link", { name: "Source 002", exact: true }).click();
   await finish();
   await expect(
-    page.getByRole("heading", { name: "Source details" }),
+    page.getByRole("heading", { name: "Source 002" }),
   ).toBeVisible();
   await expect(
     page.getByText("source-2", { exact: true }).last(),

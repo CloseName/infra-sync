@@ -63,7 +63,7 @@ test('manual sync success remains explicit and unknown failures are generic', as
 });
 
 test('sync result remains rendered after busy state releases the button', () => {
-  const page = readFileSync(new URL('../src/pages/SourcesPage.tsx', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../src/pages/SourceSync.tsx', import.meta.url), 'utf8');
   assert.ok(page.includes("setSyncResult({ sourceInstance: selected, kind: 'error'"));
   assert.ok(page.includes("setSyncResult({ sourceInstance: selected, kind: 'success'"));
   assert.ok(page.includes('finally { setSyncing(false); }'));

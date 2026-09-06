@@ -14,7 +14,10 @@ def client(tmp_path):
 
 @pytest.mark.parametrize('path', ['/', '/sources', '/sources/add', '/sources/pve-dc1',
                                   '/runs', '/runs/11111111-1111-4111-8111-111111111111',
-                                  '/diagnostics', '/sources?provider=esxi'])
+                                  '/diagnostics', '/sources?provider=esxi',
+                                  '/sources/pve-dc1/sync', '/sources/pve-dc1/runs',
+                                  '/sources/pve-dc1/schedule', '/sources/pve-dc1/diagnostics',
+                                  '/sources/pve-dc1/configuration'])
 def test_frontend_entry_routes(client, path):
     result = client.get(path)
     assert result.status_code == 200

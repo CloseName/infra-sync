@@ -3,6 +3,7 @@ export interface Resource<T> {
   data: T | null;
   loading: boolean;
   error: boolean;
+  failure?: unknown;
   received: string | null;
 }
 export function useResource<T>(fetcher: (signal: AbortSignal) => Promise<T>) {
@@ -17,7 +18,12 @@ export function useResource<T>(fetcher: (signal: AbortSignal) => Promise<T>) {
     const controller = new AbortController();
     let active = true;
     const timeout = window.setTimeout(() => controller.abort(), 15000);
-    setResource((old) => ({ ...old, loading: true, error: false }));
+    setResource((old) => ({
+      ...old,
+      loading: true,
+      error: false,
+      failure: undefined,
+    }));
     fetcher(controller.signal)
       .then((data) => {
         if (active)
@@ -28,9 +34,14 @@ export function useResource<T>(fetcher: (signal: AbortSignal) => Promise<T>) {
             received: new Date().toISOString(),
           });
       })
-      .catch(() => {
+      .catch((failure: unknown) => {
         if (active)
-          setResource((old) => ({ ...old, loading: false, error: true }));
+          setResource((old) => ({
+            ...old,
+            loading: false,
+            error: true,
+            failure,
+          }));
       })
       .finally(() => window.clearTimeout(timeout));
     return () => {
@@ -40,5 +51,15 @@ export function useResource<T>(fetcher: (signal: AbortSignal) => Promise<T>) {
     };
   }, [fetcher, revision]);
   const refresh = useCallback(() => setRevision((n) => n + 1), []);
-  return { ...resource, refresh };
+  const replaceData = useCallback(
+    (data: T) =>
+      setResource({
+        data,
+        loading: false,
+        error: false,
+        received: new Date().toISOString(),
+      }),
+    [],
+  );
+  return { ...resource, refresh, replaceData };
 }

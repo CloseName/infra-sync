@@ -27,11 +27,15 @@ export function App() {
   const [open, setOpen] = useState(false);
   const content = useRef<HTMLDivElement>(null);
   const crumbs = breadcrumbs(location.pathname);
+  const sourceDetail = /^\/sources\/(?!add(?:\/|$))[^/]+/.test(
+    location.pathname,
+  );
   useEffect(() => {
     setOpen(false);
-    document.title = `${breadcrumbs(location.pathname).at(-1)?.label} | NetBox Sync`;
+    if (!sourceDetail)
+      document.title = `${breadcrumbs(location.pathname).at(-1)?.label} | NetBox Sync`;
     content.current?.focus();
-  }, [location.pathname]);
+  }, [location.pathname, sourceDetail]);
   return (
     <>
       <a className="skip-link" href="#content">
@@ -64,24 +68,29 @@ export function App() {
           ))}
         </nav>
         <div className="app-content" id="content" ref={content} tabIndex={-1}>
-          <nav aria-label="Breadcrumb">
-            <ol className="breadcrumbs">
-              {crumbs.map((crumb, i) => (
-                <li key={crumb.to}>
-                  {i === crumbs.length - 1 ? (
-                    <span aria-current="page">{crumb.label}</span>
-                  ) : (
-                    <Link to={crumb.to}>{crumb.label}</Link>
-                  )}
-                </li>
-              ))}
-            </ol>
-          </nav>
+          {!sourceDetail && (
+            <nav aria-label="Breadcrumb">
+              <ol className="breadcrumbs">
+                {crumbs.map((crumb, i) => (
+                  <li key={crumb.to}>
+                    {i === crumbs.length - 1 ? (
+                      <span aria-current="page">{crumb.label}</span>
+                    ) : (
+                      <Link to={crumb.to}>{crumb.label}</Link>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
           <Routes>
             <Route path="/" element={<OverviewPage />} />
             <Route path="/sources" element={<SourcesListPage />} />
             <Route path="/sources/add" element={<AddSourcePage />} />
-            <Route path="/sources/:sourceInstance" element={<SourceRoute />} />
+            <Route
+              path="/sources/:sourceInstance/*"
+              element={<SourceRoute />}
+            />
             <Route path="/runs" element={<RunRoute />} />
             <Route path="/runs/:runId" element={<RunRoute />} />
             <Route path="/diagnostics" element={<DiagnosticsPage />} />

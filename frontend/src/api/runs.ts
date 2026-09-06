@@ -43,3 +43,14 @@ export async function fetchRun(id: string, signal: AbortSignal): Promise<SyncRun
  if (!isSyncRun(value) || value.run_id !== id) throw new Error('Run returned malformed data.');
  return value;
 }
+
+export async function fetchSourceRuns(instance: string, signal: AbortSignal): Promise<SyncRun[]> {
+  const query = new URLSearchParams({ source_instance: instance, limit: '50' });
+  const response = await fetch('/api/v1/runs?' + query, { signal, cache: 'no-store' });
+  if (!response.ok) throw new Error('Source history unavailable.');
+  const value: unknown = await response.json();
+  if (!record(value) || !Array.isArray(value.runs)
+    || !value.runs.every((run) => isSyncRun(run) && run.source_instance === instance))
+    throw new Error('Source history returned invalid data.');
+  return value.runs;
+}

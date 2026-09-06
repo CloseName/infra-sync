@@ -12,17 +12,21 @@ export const isSchedule = (value: unknown): value is Schedule => record(value)
 
 const safeErrors: Record<string, string> = {
   SCHEDULE_INVALID: 'Choose an interval between 60 seconds and 24 hours.',
-  SCHEDULE_CONFLICT: 'Scheduling settings changed since this page was loaded. Refresh and try again.',
+  SCHEDULE_CONFLICT: 'This schedule changed since you opened it. Reload the latest value before saving again.',
   SOURCE_NOT_FOUND: 'Source not found. Refresh the source list.',
   CONTROL_WORKER_UNAVAILABLE: 'Scheduling control is unavailable.',
   CONTROL_REQUEST_FAILED: 'Scheduling update failed.',
   SCHEDULE_UNAVAILABLE: 'Scheduling state is unavailable.',
 };
+export class ScheduleRequestError extends Error {
+  code: string;
+  constructor(code: string, message: string) { super(message); this.code = code; }
+}
 async function parse(response: Response, instance: string): Promise<Schedule> {
   if (!response.ok) {
     let value: unknown; try { value = await response.json(); } catch { throw new Error('Scheduling request failed.'); }
     const code = record(value) && record(value.error) && typeof value.error.code === 'string' ? value.error.code : '';
-    throw new Error(safeErrors[code] ?? 'Scheduling request failed.');
+    throw new ScheduleRequestError(code, safeErrors[code] ?? 'Scheduling request failed.');
   }
   let value: unknown; try { value = await response.json(); } catch { throw new Error('Scheduling request failed.'); }
   if (!isSchedule(value) || value.source_instance !== instance) throw new Error('Scheduling request failed.');

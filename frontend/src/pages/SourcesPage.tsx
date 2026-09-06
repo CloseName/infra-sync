@@ -1,149 +1,606 @@
-import { useEffect, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
-import { fetchSource } from '../api/sources';
-import type { Source } from '../api/sources';
-import { runDiscovery } from '../api/discovery';
-import type { DiscoveryResult } from '../api/discovery';
-import { applySync, buildSyncPlan, ManualSyncRequestError, prepareSync, resultForSource } from '../api/sync';
-import type { ManualSyncResult, SyncPlan } from '../api/sync';
-import { fetchSchedule, updateSchedule } from '../api/schedule';
-import type { Schedule } from '../api/schedule';
-
-const genericSyncFailure = 'Manual sync request failed. No automatic retry was performed.';
-
-const detailLabels: Record<keyof Source, string> = {
-  source_instance: 'Source instance', type: 'Type', name: 'Display name', address: 'Address',
-  enabled: 'Enabled', sync_enabled: 'Automatic sync configured', verify_ssl: 'Verify TLS',
-  sync_interval_seconds: 'Configured interval (seconds)', site_slug: 'Site slug', cluster_name: 'Cluster',
-  platform_slug: 'Platform slug', device_role_slug: 'Device role slug', device_type_slug: 'Device type slug',
-  cluster_type_slug: 'Cluster type slug', legacy_identity_owner: 'Legacy identity owner', status: 'Configuration status',
-};
-
-export function SourcesPage() {
-  const { sourceInstance } = useParams();
-  const selected = sourceInstance ?? null;
-  const location = useLocation();
-  const from = typeof location.state?.from === 'string' && /^\/sources(?:\?|$)/.test(location.state.from) ? location.state.from : '/sources';
-  const [detail, setDetail] = useState<Source | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [revision, setRevision] = useState(0);
-  const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
-  const [discovering, setDiscovering] = useState(false);
-  const [discoveryError, setDiscoveryError] = useState('');
-  const [classFilter, setClassFilter] = useState('ALL');
-  const [kindFilter, setKindFilter] = useState('ALL');
-  const [syncPlan, setSyncPlan] = useState<SyncPlan | null>(null);
-  const [syncResult, setSyncResult] = useState<ManualSyncResult | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [schedule, setSchedule] = useState<Schedule | null>(null);
-  const [editingSchedule, setEditingSchedule] = useState(false);
-  const [scheduleEnabled, setScheduleEnabled] = useState(false);
-  const [scheduleInterval, setScheduleInterval] = useState(600);
-  const [scheduleMessage, setScheduleMessage] = useState('');
-  const visibleSyncResult = resultForSource(syncResult, selected);
-
-  const buildPlan = async () => {
-    if (!selected) return;
-    setSyncing(true); setSyncResult(null); setSyncPlan(null);
-    try { setSyncPlan(await buildSyncPlan(selected, new AbortController().signal)); }
-    catch (failure) { setSyncResult({ sourceInstance: selected, kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
-    finally { setSyncing(false); }
-  };
-
-  const syncNow = async () => {
-    if (!selected || !syncPlan || !window.confirm(`Apply the exact reviewed plan for ${selected}?`)) return;
-    setSyncing(true); setSyncResult(null);
-    try {
-      const controller = new AbortController();
-      const token = await prepareSync(selected, syncPlan.digest, controller.signal);
-      setSyncResult({ sourceInstance: selected, kind: 'success', message: await applySync(selected, token, controller.signal) });
-      setSyncPlan(null);
-    } catch (failure) { setSyncResult({ sourceInstance: selected, kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
-    finally { setSyncing(false); }
-  };
-
-  const discover = async () => {
-    if (!selected) return;
-    const controller = new AbortController();
-    setDiscovering(true); setDiscoveryError(''); setDiscovery(null);
-    try { setDiscovery(await runDiscovery(selected, controller.signal)); }
-    catch (failure) { setDiscoveryError(failure instanceof Error ? failure.message : 'Discovery failed.'); }
-    finally { setDiscovering(false); }
-  };
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 15000);
-    let active = true;
-    setLoading(true); setError(''); setDetail(null); setSchedule(null); setScheduleMessage(''); setEditingSchedule(false);
-    const operation = selected
-      ? fetchSource(selected, controller.signal).then((value) => {
-        if (active) setDetail(value);
-        return fetchSchedule(selected, controller.signal).catch((failure) => {
-          if (active) setScheduleMessage(failure instanceof Error ? failure.message : 'Scheduling request failed.');
-          return null;
-        });
-      }).then((scheduling) => { if (active && scheduling) { setSchedule(scheduling); setScheduleEnabled(scheduling.sync_enabled); setScheduleInterval(scheduling.sync_interval_seconds); } })
-      : Promise.resolve(null);
-    operation.catch((failure: unknown) => {
-      if (active) setError(failure instanceof Error ? failure.message : 'Source data unavailable.');
-    }).finally(() => { window.clearTimeout(timeout); if (active) setLoading(false); });
-    return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
-  }, [selected, revision]);
-
-  return <main>
-    <div className="page-heading"><div><p className="eyebrow">READ-ONLY REGISTRY</p>
-      <h1>{selected ? 'Source details' : 'Sources'}</h1>
-      <p className="intro">Credentials and source identity are protected. Scheduling can be edited below.
-        Connectivity and authentication are not checked here.</p></div>
-      <button disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button>
-    </div>
-    <Link to={from}>Back to sources</Link>
-    {loading && <p role="status">Loading source configuration…</p>}
-    {!loading && error && <p role="alert" className="source-error">{error}</p>}
-    {!loading && !error && detail && <><dl className="source-detail">
-      {(Object.keys(detailLabels) as (keyof Source)[]).map((key) => <div key={key}>
-        <dt>{detailLabels[key]}</dt><dd>{typeof detail[key] === 'boolean'
-          ? (detail[key] ? 'Yes' : 'No') : String(detail[key])}</dd>
-      </div>)}
-    </dl>{!schedule && scheduleMessage && <p role="alert" className="source-error">{scheduleMessage}</p>}{schedule && <section className="discovery-review"><h2>Automatic synchronization</h2>
-      <p>Status: {schedule.sync_enabled ? 'Enabled' : 'Disabled'}</p><p>Interval: Every {schedule.sync_interval_seconds} seconds</p>
-      <p>Scheduler state: {schedule.scheduler_state}</p><p>Last scheduled run: {schedule.last_scheduled_run_at ? new Date(schedule.last_scheduled_run_at).toLocaleString() : 'None'}</p>
-      <p>Next expected run: {schedule.next_expected_at ? new Date(schedule.next_expected_at).toLocaleString() : 'Not scheduled'}</p>
-      {!editingSchedule ? <button onClick={() => { setEditingSchedule(true); setScheduleMessage(''); }}>Edit schedule</button> : <div>
-        <label><input type="checkbox" checked={scheduleEnabled} onChange={(event) => setScheduleEnabled(event.target.checked)} /> Automatic sync</label>
-        <label>Interval <select value={scheduleInterval} onChange={(event) => setScheduleInterval(Number(event.target.value))}>
-          {[300, 600, 900, 1800, 3600, 21600, 86400].map((value) => <option key={value} value={value}>{value} seconds</option>)}
-        </select></label>
-        <label>Custom seconds <input type="number" min="60" max="86400" value={scheduleInterval} onChange={(event) => setScheduleInterval(Number(event.target.value))} /></label>
-        <button onClick={async () => { setScheduleMessage(''); try { const updated = await updateSchedule(detail.source_instance, { sync_enabled: scheduleEnabled, sync_interval_seconds: scheduleInterval, expected_sync_enabled: schedule.sync_enabled, expected_sync_interval_seconds: schedule.sync_interval_seconds }, new AbortController().signal); setSchedule(updated); setEditingSchedule(false); setScheduleMessage(updated.sync_enabled ? 'Automatic synchronization updated.' : 'Automatic synchronization disabled. Manual synchronization remains available.'); } catch (failure) { setScheduleMessage(failure instanceof Error ? failure.message : 'Scheduling update failed.'); } }}>Save</button>
-        <button onClick={() => { setEditingSchedule(false); setScheduleEnabled(schedule.sync_enabled); setScheduleInterval(schedule.sync_interval_seconds); }}>Cancel</button>
-      </div>}{scheduleMessage && <p role="status">{scheduleMessage}</p>}
-    </section>}<section className="discovery-review"><h2>Discovery / Preflight</h2>
-      <p>Read-only: this contacts the source and NetBox but makes no NetBox changes.</p>
-      <button disabled={discovering || !detail.enabled} onClick={discover}>Run discovery</button>
-      {discovering && <p role="status">Running read-only discovery…</p>}
-      {discoveryError && <p role="alert" className="source-error">{discoveryError}</p>}
-      {discovery && <><div className="summary-grid">{Array.from(new Set(discovery.items.map((item) => item.classification))).map((classification) => <div key={classification}><strong>{classification.replaceAll('_', ' ')}</strong> <span>{discovery.items.filter((item) => item.classification === classification).length}</span></div>)}</div>
-        <div className="filters"><label>Classification <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.classification))).map((value) => <option key={value}>{value}</option>)}</select></label>
-          <label>Object kind <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.object_kind))).map((value) => <option key={value}>{value}</option>)}</select></label></div>
-        <div className="source-table"><table><thead><tr><th scope="col">Kind</th><th scope="col">Name</th><th scope="col">Classification</th><th scope="col">Reason</th><th scope="col">Future action</th><th scope="col">NetBox match</th></tr></thead><tbody>{discovery.items.filter((item) => (classFilter === 'ALL' || item.classification === classFilter) && (kindFilter === 'ALL' || item.object_kind === kindFilter)).map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.classification.replaceAll('_', ' ')}</td><td>{item.reason} ({item.reason_code})</td><td>{item.future_action}</td><td>{item.matched_object_name || '—'}</td></tr>)}</tbody></table></div></>}
-    </section><section className="discovery-review"><h2>Plan / Sync Now</h2>
-      <p>Build a read-only exact plan, review it, then explicitly confirm one source.</p>
-      <button disabled={syncing || !detail.enabled} onClick={buildPlan}>Build plan</button>
-      {syncing && <p role="status">Checking the current plan…</p>}
-      {syncPlan && <><p>Plan digest: <code>{syncPlan.digest}</code></p>
-        <div className="summary-grid">{actions(syncPlan).map(([action, count]) => <div key={action}><strong>{action.replaceAll('_', ' ')}</strong> <span>{count}</span></div>)}</div>
-        <div className="source-table"><table><thead><tr><th scope="col">Kind</th><th scope="col">Name</th><th scope="col">Action</th><th scope="col">Reason</th></tr></thead><tbody>{syncPlan.items.map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.action}</td><td>{item.reason}</td></tr>)}</tbody></table></div>
-        <button disabled={!syncPlan.apply_allowed || syncing} onClick={syncNow}>Sync Now</button></>}
-      {visibleSyncResult && <p role={visibleSyncResult.kind === 'error' ? 'alert' : 'status'}
-        className={visibleSyncResult.kind === 'error' ? 'source-error' : undefined}>{visibleSyncResult.message}</p>}
-    </section></>}
-    <p className="intro">Systemd provides a fixed tick; NetBox Sync derives each source schedule from persisted scheduled runs.</p>
-  </main>;
+import { useCallback, useEffect, useState } from "react";
+import { Link, NavLink, useLocation, useParams } from "react-router-dom";
+import { fetchSource, SourceNotFoundError } from "../api/sources";
+import type { Source } from "../api/sources";
+import { fetchSchedule } from "../api/schedule";
+import { fetchDiagnostics } from "../api/diagnostics";
+import type { DiagnosticRun } from "../api/diagnostics";
+import { fetchSourceRuns } from "../api/runs";
+import { useResource } from "../ui/useResource";
+import { diagnosticIndex, attention } from "../ui/operations";
+import {
+  Badge,
+  Timestamp,
+  Alert,
+  LoadingState,
+  PageHeader,
+} from "../ui/primitives";
+import { healthStatus, runStatus, scheduleStates } from "../ui/status";
+import { duration } from "../ui/format";
+import { sourcePath, runPath } from "../ui/routes";
+import { SourceSync } from "./SourceSync";
+import { SourceSchedule, ScheduleSummary } from "./SourceSchedule";
+export const sourceTabs = [
+  "Overview",
+  "Sync",
+  "Runs",
+  "Schedule",
+  "Diagnostics",
+  "Configuration",
+];
+function RunEvidence({ run }: { run: DiagnosticRun | null }) {
+  return run ? (
+    <>
+      <Link to={runPath(run.run_id)}>
+        <Badge value={runStatus(run.status)} />
+      </Link>{" "}
+      <Timestamp value={run.started_at} />
+    </>
+  ) : (
+    <>No run recorded</>
+  );
 }
-
-function actions(plan: SyncPlan): [string, number][] {
-  return Array.from(new Set(plan.items.map((item) => item.action))).map((action) => [action, plan.items.filter((item) => item.action === action).length]);
+export function SourcesPage() {
+  const { sourceInstance = "", "*": suffix = "" } = useParams();
+  const tab = suffix
+    ? sourceTabs.find((item) => item.toLowerCase() === suffix)
+    : "Overview";
+  const location = useLocation();
+  const [from] = useState(() =>
+    typeof location.state?.from === "string" &&
+    /^\/sources(?:\?|$)/.test(location.state.from)
+      ? location.state.from
+      : "/sources",
+  );
+  const source = useResource(
+    useCallback(
+      (signal) => fetchSource(sourceInstance, signal),
+      [sourceInstance],
+    ),
+  );
+  const schedule = useResource(
+    useCallback(
+      (signal) => fetchSchedule(sourceInstance, signal),
+      [sourceInstance],
+    ),
+  );
+  const diagnostics = useResource(fetchDiagnostics);
+  const detail = source.data;
+  const evidence = diagnosticIndex(diagnostics.data).get(sourceInstance);
+  const concern = attention(evidence);
+  const base = sourcePath(sourceInstance);
+  useEffect(() => {
+    document.title = `${detail?.name ?? sourceInstance}${tab && tab !== "Overview" ? " / " + tab : ""} | NetBox Sync`;
+  }, [detail?.name, sourceInstance, tab]);
+  if (!tab)
+    return (
+      <main>
+        <h1>Page not found</h1>
+        <Link to={base}>Open source overview</Link>
+      </main>
+    );
+  return (
+    <main className="source-workspace">
+      <nav aria-label="Breadcrumb">
+        <ol className="breadcrumbs">
+          <li>
+            <Link to="/sources">Sources</Link>
+          </li>
+          <li>
+            {tab === "Overview" ? (
+              <span aria-current="page">{detail?.name ?? sourceInstance}</span>
+            ) : (
+              <Link to={base} state={{ from }}>
+                {detail?.name ?? sourceInstance}
+              </Link>
+            )}
+          </li>
+          {tab !== "Overview" && (
+            <li>
+              <span aria-current="page">{tab}</span>
+            </li>
+          )}
+        </ol>
+      </nav>
+      <Link to={from}>Back to sources</Link>
+      {source.loading && !detail && (
+        <LoadingState label="Loading source configuration…" />
+      )}
+      {source.error && (
+        <>
+          <h1>
+            {source.failure instanceof SourceNotFoundError
+              ? "Source not found"
+              : "Source unavailable"}
+          </h1>
+          <Alert retry={source.refresh}>
+            {source.failure instanceof SourceNotFoundError
+              ? "This source does not exist in the registry."
+              : "Source configuration could not be loaded. Retry without leaving this route."}
+          </Alert>
+        </>
+      )}
+      {detail && !source.error && (
+        <>
+          <header className="source-header">
+            <PageHeader
+              title={detail.name}
+              description={
+                detail.type === "proxmox" ? "Proxmox VE" : "VMware ESXi"
+              }
+              actions={
+                tab === "Overview" ? (
+                  <Link
+                    className="button primary"
+                    to={base + "/sync"}
+                    state={{ from }}
+                  >
+                    Open Sync
+                  </Link>
+                ) : undefined
+              }
+            />
+            <p className="muted source-identity">
+              <code>{detail.source_instance}</code> · Site {detail.site_slug} /{" "}
+              {detail.cluster_name}
+            </p>
+            <dl className="source-header-signals">
+              <div>
+                <dt>Source</dt>
+                <dd>
+                  <Badge
+                    value={{
+                      label: detail.enabled ? "Enabled" : "Disabled",
+                      tone: detail.enabled ? "info" : "neutral",
+                      icon: detail.enabled ? "✓" : "−",
+                    }}
+                  />
+                </dd>
+              </div>
+              <div>
+                <dt>Automatic sync</dt>
+                <dd>
+                  {schedule.data
+                    ? schedule.data.sync_enabled
+                      ? "On"
+                      : "Off"
+                    : "Unavailable"}
+                  {schedule.error && schedule.data && " (last loaded)"}
+                </dd>
+              </div>
+              <div>
+                <dt>Last run</dt>
+                <dd>
+                  {evidence ? (
+                    <RunEvidence run={evidence.latest_run} />
+                  ) : (
+                    "Unavailable"
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Last successful sync</dt>
+                <dd>
+                  {evidence ? (
+                    <Timestamp value={evidence.latest_success_at} />
+                  ) : (
+                    "Unavailable"
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Attention</dt>
+                <dd>
+                  {concern ? (
+                    <Link to={base + "/diagnostics"} state={{ from }}>
+                      {concern.label}
+                    </Link>
+                  ) : evidence ? (
+                    evidence.status === "UNKNOWN" ? (
+                      "Not verified"
+                    ) : (
+                      "None reported"
+                    )
+                  ) : (
+                    "Unavailable"
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </header>
+          <nav className="source-tabs" aria-label="Source sections">
+            {sourceTabs.map((item) => (
+              <NavLink
+                key={item}
+                end
+                to={
+                  base + (item === "Overview" ? "" : "/" + item.toLowerCase())
+                }
+                state={{ from }}
+              >
+                {item}
+              </NavLink>
+            ))}
+          </nav>
+          {schedule.error && tab !== "Schedule" && (
+            <Alert>
+              Schedule unavailable.{" "}
+              <Link to={base + "/schedule"} state={{ from }}>
+                Open schedule to retry
+              </Link>
+            </Alert>
+          )}
+          {diagnostics.error && (
+            <Alert retry={diagnostics.refresh}>
+              Diagnostics unavailable.
+              {diagnostics.data && (
+                <>
+                  {" "}
+                  Showing evidence from{" "}
+                  <Timestamp value={diagnostics.data.generated_at} />.
+                </>
+              )}
+            </Alert>
+          )}
+          {tab === "Overview" && (
+            <>
+              <h2>Source overview</h2>
+              <div className="source-panels">
+                <section className="source-panel">
+                  <h3>Recent activity</h3>
+                  <dl className="source-facts">
+                    <div>
+                      <dt>Last run</dt>
+                      <dd>
+                        {evidence ? (
+                          <RunEvidence run={evidence.latest_run} />
+                        ) : (
+                          "Unavailable"
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Last success</dt>
+                      <dd>
+                        {evidence ? (
+                          <Timestamp value={evidence.latest_success_at} />
+                        ) : (
+                          "Unavailable"
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Diagnostics</dt>
+                      <dd>
+                        <Badge value={healthStatus(evidence?.status)} />
+                      </dd>
+                    </div>
+                  </dl>
+                  <Link to={base + "/runs"} state={{ from }}>
+                    View source runs
+                  </Link>
+                </section>
+                <section className="source-panel">
+                  <h3>Schedule summary</h3>
+                  {schedule.data ? (
+                    <ScheduleSummary
+                      schedule={schedule.data}
+                      evidence={evidence}
+                    />
+                  ) : (
+                    <p>Schedule unavailable.</p>
+                  )}
+                  <Link to={base + "/schedule"} state={{ from }}>
+                    Manage schedule
+                  </Link>
+                </section>
+                <section className="source-panel">
+                  <h3>NetBox target</h3>
+                  <dl className="source-facts">
+                    <div>
+                      <dt>Site</dt>
+                      <dd>{detail.site_slug}</dd>
+                    </div>
+                    <div>
+                      <dt>Cluster</dt>
+                      <dd>{detail.cluster_name}</dd>
+                    </div>
+                  </dl>
+                  <Link to={base + "/configuration"} state={{ from }}>
+                    View configuration
+                  </Link>
+                </section>
+                <section className="source-panel">
+                  <h3>Attention</h3>
+                  <p>
+                    {concern?.label ??
+                      (evidence
+                        ? evidence.status === "UNKNOWN"
+                          ? "Not verified"
+                          : "No attention reported in this evidence."
+                        : "Source evidence unavailable.")}
+                  </p>
+                  <p className="muted">
+                    Registry configuration and recorded activity do not verify
+                    provider connectivity or authentication.
+                  </p>
+                  <Link to={base + "/diagnostics"} state={{ from }}>
+                    View source diagnostics
+                  </Link>
+                </section>
+              </div>
+            </>
+          )}
+          {/* Keep local operations and edits mounted across tabs; the route wrapper remounts by source identity. */}
+          <div hidden={tab !== "Sync"}>
+            <SourceSync detail={detail} />
+          </div>
+          <div hidden={tab !== "Schedule"}>
+            <SourceSchedule
+              instance={sourceInstance}
+              sourceEnabled={detail.enabled}
+              resource={schedule}
+              evidence={evidence}
+              afterSave={diagnostics.refresh}
+            />
+          </div>
+          {tab === "Runs" && <SourceRuns instance={sourceInstance} />}
+          {tab === "Diagnostics" && (
+            <section className="source-panel">
+              <div className="page-heading">
+                <h2>Source diagnostics</h2>
+                <button
+                  disabled={diagnostics.loading}
+                  onClick={diagnostics.refresh}
+                >
+                  Refresh evidence
+                </button>
+              </div>
+              {diagnostics.loading && (
+                <LoadingState label="Loading evidence…" />
+              )}
+              <dl className="source-facts">
+                <div>
+                  <dt>Diagnostic status</dt>
+                  <dd>
+                    <Badge value={healthStatus(evidence?.status)} />
+                  </dd>
+                </div>
+                <div>
+                  <dt>Scheduler state (at evidence time)</dt>
+                  <dd>
+                    {evidence ? (
+                      <Badge value={scheduleStates[evidence.scheduler_state]} />
+                    ) : (
+                      "Unavailable"
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Last run</dt>
+                  <dd>
+                    {evidence ? (
+                      <RunEvidence run={evidence.latest_run} />
+                    ) : (
+                      "Unavailable"
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Last success</dt>
+                  <dd>
+                    {evidence ? (
+                      <Timestamp value={evidence.latest_success_at} />
+                    ) : (
+                      "Unavailable"
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Evidence timestamp</dt>
+                  <dd>
+                    <Timestamp value={diagnostics.data?.generated_at} />
+                  </dd>
+                </div>
+              </dl>
+              <h3>Attention</h3>
+              <p>
+                {concern?.label ??
+                  (evidence
+                    ? evidence.status === "UNKNOWN"
+                      ? "Not verified"
+                      : "None reported"
+                    : "Unavailable")}
+              </p>
+              {evidence?.warnings.map((warning) => (
+                <p key={warning}>
+                  {warning === "STALE_RUNNING"
+                    ? "A recorded run has unconfirmed completion. Check its outcome before retrying."
+                    : "Scheduled activity is later than expected."}
+                </p>
+              ))}
+              <p className="muted">
+                Evidence is derived from persisted activity. It does not prove
+                source connectivity or a live scheduler heartbeat.
+              </p>
+              <Link to="/diagnostics">Open system diagnostics</Link>
+              <details>
+                <summary>Technical evidence</summary>
+                <p>
+                  Source: <code>{sourceInstance}</code>
+                </p>
+                <p>Diagnostic status: {evidence?.status ?? "UNAVAILABLE"}</p>
+                <p>
+                  Warning codes:{" "}
+                  {evidence?.warnings.join(", ") || "None available"}
+                </p>
+              </details>
+            </section>
+          )}
+          {tab === "Configuration" && (
+            <SourceConfiguration
+              source={detail}
+              scheduleLink={base + "/schedule"}
+            />
+          )}
+        </>
+      )}
+    </main>
+  );
+}
+function SourceRuns({ instance }: { instance: string }) {
+  const resource = useResource(
+    useCallback((signal) => fetchSourceRuns(instance, signal), [instance]),
+  );
+  return (
+    <section className="source-panel">
+      <div className="page-heading">
+        <h2>Source runs</h2>
+        <button disabled={resource.loading} onClick={resource.refresh}>
+          Refresh runs
+        </button>
+      </div>
+      <p className="muted">
+        Latest 50 runs for this source. Action counts describe the recorded
+        plan, not confirmed applied changes.
+      </p>
+      {resource.loading && <LoadingState />}
+      {resource.error && (
+        <Alert retry={resource.refresh}>
+          Source history unavailable.
+          {resource.data && " Showing previously loaded runs."}
+        </Alert>
+      )}
+      {resource.data &&
+        (resource.data.length ? (
+          <div className="source-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Outcome</th>
+                  <th>Trigger</th>
+                  <th>Started</th>
+                  <th>Duration</th>
+                  <th>Plan action counts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resource.data.map((run) => (
+                  <tr key={run.run_id}>
+                    <td>
+                      <Link to={runPath(run.run_id)}>
+                        <Badge value={runStatus(run.status)} />
+                      </Link>
+                    </td>
+                    <td>{run.trigger}</td>
+                    <td>
+                      <Timestamp value={run.started_at} />
+                    </td>
+                    <td>{duration(run.duration_ms)}</td>
+                    <td>
+                      {Object.entries(run.actions)
+                        .filter(([, count]) => count > 0)
+                        .map(
+                          ([action, count]) =>
+                            `${action.replaceAll("_", " ")}: ${count}`,
+                        )
+                        .join(" · ") || "No actions recorded"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>No runs recorded for this source.</p>
+        ))}
+    </section>
+  );
+}
+function SourceConfiguration({
+  source: s,
+  scheduleLink,
+}: {
+  source: Source;
+  scheduleLink: string;
+}) {
+  const groups = [
+    [
+      "Identity",
+      [
+        ["Display name", s.name],
+        ["Provider", s.type === "proxmox" ? "Proxmox VE" : "VMware ESXi"],
+      ],
+    ],
+    [
+      "Connection",
+      [
+        ["Address", s.address],
+        ["Credentials", "Source-scoped; values are not exposed"],
+        ["Verification", "Connectivity and authentication not checked here"],
+      ],
+    ],
+    [
+      "NetBox target",
+      [
+        ["Site", s.site_slug],
+        ["Cluster", s.cluster_name],
+      ],
+    ],
+    [
+      "Provider mapping",
+      [
+        ["Platform", s.platform_slug],
+        ["Device role", s.device_role_slug],
+        ["Device type", s.device_type_slug],
+        ["Cluster type", s.cluster_type_slug],
+      ],
+    ],
+    [
+      "TLS",
+      [["Certificate verification", s.verify_ssl ? "Enabled" : "Disabled"]],
+    ],
+  ] as const;
+  return (
+    <>
+      <h2>Configuration</h2>
+      <p className="muted">
+        Read-only registry configuration. Credentials and stable identity are
+        protected.
+      </p>
+      <div className="source-panels">
+        {groups.map(([title, fields]) => (
+          <section className="source-panel" key={title}>
+            <h3>{title}</h3>
+            <dl className="source-facts">
+              {fields.map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        ))}
+      </div>
+      <p>
+        <Link to={scheduleLink}>Manage automatic sync schedule</Link>
+      </p>
+      <details className="source-panel">
+        <summary>Advanced identity</summary>
+        <dl className="source-facts">
+          <div>
+            <dt>Stable source ID</dt>
+            <dd>
+              <code>{s.source_instance}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>Legacy identity owner</dt>
+            <dd>{s.legacy_identity_owner ? "Yes" : "No"}</dd>
+          </div>
+        </dl>
+      </details>
+    </>
+  );
 }

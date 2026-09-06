@@ -1,0 +1,75 @@
+import { useState } from 'react';
+import type { Source } from '../api/sources';
+import { runDiscovery } from '../api/discovery';
+import type { DiscoveryResult } from '../api/discovery';
+import { applySync, buildSyncPlan, ManualSyncRequestError, prepareSync, resultForSource } from '../api/sync';
+import type { ManualSyncResult, SyncPlan } from '../api/sync';
+
+const genericSyncFailure = 'Manual sync request failed. No automatic retry was performed.';
+
+export function SourceSync({ detail }: { detail: Source }) {
+  const selected = detail.source_instance;
+  const [discovery, setDiscovery] = useState<DiscoveryResult | null>(null);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState('');
+  const [classFilter, setClassFilter] = useState('ALL');
+  const [kindFilter, setKindFilter] = useState('ALL');
+  const [syncPlan, setSyncPlan] = useState<SyncPlan | null>(null);
+  const [syncResult, setSyncResult] = useState<ManualSyncResult | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const visibleSyncResult = resultForSource(syncResult, selected);
+
+  const buildPlan = async () => {
+    if (!selected) return;
+    setSyncing(true); setSyncResult(null); setSyncPlan(null);
+    try { setSyncPlan(await buildSyncPlan(selected, new AbortController().signal)); }
+    catch (failure) { setSyncResult({ sourceInstance: selected, kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
+    finally { setSyncing(false); }
+  };
+
+  const syncNow = async () => {
+    if (!selected || !syncPlan || !window.confirm(`Apply the exact reviewed plan for ${selected}?`)) return;
+    setSyncing(true); setSyncResult(null);
+    try {
+      const controller = new AbortController();
+      const token = await prepareSync(selected, syncPlan.digest, controller.signal);
+      setSyncResult({ sourceInstance: selected, kind: 'success', message: await applySync(selected, token, controller.signal) });
+      setSyncPlan(null);
+    } catch (failure) { setSyncResult({ sourceInstance: selected, kind: 'error', message: failure instanceof ManualSyncRequestError ? failure.message : genericSyncFailure }); }
+    finally { setSyncing(false); }
+  };
+
+  const discover = async () => {
+    if (!selected) return;
+    const controller = new AbortController();
+    setDiscovering(true); setDiscoveryError(''); setDiscovery(null);
+    try { setDiscovery(await runDiscovery(selected, controller.signal)); }
+    catch (failure) { setDiscoveryError(failure instanceof Error ? failure.message : 'Discovery failed.'); }
+    finally { setDiscovering(false); }
+  };
+
+  return <><h2>Sync</h2><p>Discovery is optional and is not a prerequisite for Build plan.</p><section className="discovery-review"><h2>Discovery / Preflight</h2>
+      <p>Read-only: this contacts the source and NetBox but makes no NetBox changes.</p>
+      <button disabled={discovering || !detail.enabled} onClick={discover}>Run discovery</button>
+      {discovering && <p role="status">Running read-only discovery…</p>}
+      {discoveryError && <p role="alert" className="source-error">{discoveryError}</p>}
+      {discovery && <><div className="summary-grid">{Array.from(new Set(discovery.items.map((item) => item.classification))).map((classification) => <div key={classification}><strong>{classification.replaceAll('_', ' ')}</strong> <span>{discovery.items.filter((item) => item.classification === classification).length}</span></div>)}</div>
+        <div className="filters"><label>Classification <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.classification))).map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label>Object kind <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.object_kind))).map((value) => <option key={value}>{value}</option>)}</select></label></div>
+        <div className="source-table"><table><thead><tr><th scope="col">Kind</th><th scope="col">Name</th><th scope="col">Classification</th><th scope="col">Reason</th><th scope="col">Future action</th><th scope="col">NetBox match</th></tr></thead><tbody>{discovery.items.filter((item) => (classFilter === 'ALL' || item.classification === classFilter) && (kindFilter === 'ALL' || item.object_kind === kindFilter)).map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.classification.replaceAll('_', ' ')}</td><td>{item.reason} ({item.reason_code})</td><td>{item.future_action}</td><td>{item.matched_object_name || '—'}</td></tr>)}</tbody></table></div></>}
+    </section><section className="discovery-review"><h2>Plan / Sync Now</h2>
+      <p>Build a read-only exact plan, review it, then explicitly confirm one source.</p>
+      <button disabled={syncing || !detail.enabled} onClick={buildPlan}>Build plan</button>
+      {syncing && <p role="status">Checking the current plan…</p>}
+      {syncPlan && <><p>Plan digest: <code>{syncPlan.digest}</code></p>
+        <div className="summary-grid">{actions(syncPlan).map(([action, count]) => <div key={action}><strong>{action.replaceAll('_', ' ')}</strong> <span>{count}</span></div>)}</div>
+        <div className="source-table"><table><thead><tr><th scope="col">Kind</th><th scope="col">Name</th><th scope="col">Action</th><th scope="col">Reason</th></tr></thead><tbody>{syncPlan.items.map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.action}</td><td>{item.reason}</td></tr>)}</tbody></table></div>
+        <button disabled={!syncPlan.apply_allowed || syncing} onClick={syncNow}>Sync Now</button></>}
+      {visibleSyncResult && <p role={visibleSyncResult.kind === 'error' ? 'alert' : 'status'}
+        className={visibleSyncResult.kind === 'error' ? 'source-error' : undefined}>{visibleSyncResult.message}</p>}
+    </section>
+  </>;
+}
+function actions(plan: SyncPlan): [string, number][] {
+  return Array.from(new Set(plan.items.map((item) => item.action))).map((action) => [action, plan.items.filter((item) => item.action === action).length]);
+}

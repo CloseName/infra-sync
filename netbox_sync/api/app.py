@@ -336,6 +336,11 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
 
         @app.get('/sources', include_in_schema=False)
         @app.get('/sources/add', include_in_schema=False)
+        @app.get('/sources/{source_instance}/sync', include_in_schema=False)
+        @app.get('/sources/{source_instance}/runs', include_in_schema=False)
+        @app.get('/sources/{source_instance}/schedule', include_in_schema=False)
+        @app.get('/sources/{source_instance}/diagnostics', include_in_schema=False)
+        @app.get('/sources/{source_instance}/configuration', include_in_schema=False)
         @app.get('/sources/{source_instance}', include_in_schema=False)
         @app.get('/runs', include_in_schema=False)
         @app.get('/runs/{run_id}', include_in_schema=False)
