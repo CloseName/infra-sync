@@ -109,4 +109,4 @@ The v1 scope is safe Proxmox VE and VMware ESXi inventory reconciliation, source
 ## License
 
 Licensed under the GNU General Public License v3.0. See [LICENSE.txt](LICENSE.txt).
-Original authorship and attribution remain preserved in package metadata and Git history.
+See [Project provenance](docs/provenance.md) for derivation and history details.
