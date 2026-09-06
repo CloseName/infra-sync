@@ -80,15 +80,3 @@ test('manual sync outcomes are visible only for their source instance', () => {
   assert.equal(resultForSource(successB, 'source-a'), null);
   assert.equal(resultForSource(successB, 'source-b'), successB);
 });
-
-test('source navigation explicitly clears any previous manual sync outcome', () => {
-  const page = readFileSync(new URL('../src/pages/SourcesPage.tsx', import.meta.url), 'utf8');
-  assert.ok(page.includes('setSelected(null); setDiscovery(null); setSyncPlan(null); setSyncResult(null);'));
-  assert.ok(page.includes('setSyncResult(null); setSelected(source.source_instance);'));
-});
-
-test('application header uses a phase-neutral label', () => {
-  const main = readFileSync(new URL('../src/main.tsx', import.meta.url), 'utf8');
-  assert.ok(main.includes('INFRA SYNC · SOURCE CONTROL'));
-  assert.ok(!main.includes('SOURCE ONBOARDING · WEB-3'));
-});

@@ -1,5 +1,6 @@
 import type { HealthStatus } from '../types/health';
-
+import { Badge } from '../ui/primitives';
+import { healthStatus } from '../ui/status';
 export function StatusBadge({ status }: { status: HealthStatus }) {
-  return <span className={`status status-${status}`}><span aria-hidden="true">●</span> {status}</span>;
+  return <Badge value={healthStatus(status)} code={status} />;
 }

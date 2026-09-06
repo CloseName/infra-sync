@@ -334,6 +334,12 @@ def create_app(settings=None, service=None, source_service=None, onboarding_serv
             raise ValueError('Frontend build is unavailable')
         app.mount('/assets', StaticFiles(directory=root / 'assets'), name='assets')
 
+        @app.get('/sources', include_in_schema=False)
+        @app.get('/sources/add', include_in_schema=False)
+        @app.get('/sources/{source_instance}', include_in_schema=False)
+        @app.get('/runs', include_in_schema=False)
+        @app.get('/runs/{run_id}', include_in_schema=False)
+        @app.get('/diagnostics', include_in_schema=False)
         @app.get('/', include_in_schema=False)
         def frontend():
             return FileResponse(root / 'index.html')

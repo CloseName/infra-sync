@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { fetchRuns } from '../api/runs';
+import { Link, useParams } from 'react-router-dom';
+import { runPath } from '../ui/routes';
+import { fetchRuns, fetchRun } from '../api/runs';
 import type { SyncRun } from '../api/runs';
 
 const actionLabels: Record<keyof SyncRun['actions'], string> = {
@@ -12,6 +14,7 @@ const duration = (value: number | null) => value === null ? 'In progress' : `${v
 const changes = (run: SyncRun) => `${run.actions.create + run.actions.update} changes`;
 
 export function RunsPage() {
+  const { runId } = useParams();
   const [runs, setRuns] = useState<SyncRun[]>([]);
   const [selected, setSelected] = useState<SyncRun | null>(null);
   const [loading, setLoading] = useState(true);
@@ -22,27 +25,28 @@ export function RunsPage() {
     const controller = new AbortController();
     let active = true;
     setLoading(true); setError(false); setSelected(null);
-    fetchRuns(controller.signal).then((value) => { if (active) setRuns(value); })
+    const request = runId ? fetchRun(runId, controller.signal).then(value => { if (active) setSelected(value); }) : fetchRuns(controller.signal).then(value => { if (active) setRuns(value); });
+    request
       .catch(() => { if (active) setError(true); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; controller.abort(); };
-  }, [revision]);
+  }, [revision, runId]);
 
   return <main><div className="page-heading"><div><p className="eyebrow">SYNC ACTIVITY</p>
-    <h1>Run history</h1><p className="intro">Durable manual and scheduled synchronization outcomes.</p></div>
+    <h1>{runId ? 'Run details' : 'Run history'}</h1><p className="intro">Durable manual and scheduled synchronization outcomes.</p></div>
     <button disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button></div>
     {loading && <p role="status">Loading history...</p>}
     {!loading && error && <p role="alert" className="source-error">History could not be loaded.</p>}
-    {!loading && !error && runs.length === 0 && <p>No synchronization runs recorded yet.</p>}
+    {!loading && !error && !runId && runs.length === 0 && <p>No synchronization runs recorded yet.</p>}
     {!loading && !error && runs.length > 0 && <div className="source-table"><table><thead><tr>
-      <th>Time</th><th>Source</th><th>Type</th><th>Trigger</th><th>Status</th><th>Duration</th><th>Changes</th>
+      <th scope="col">Time</th><th scope="col">Source</th><th scope="col">Type</th><th scope="col">Trigger</th><th scope="col">Status</th><th scope="col">Duration</th><th scope="col">Changes</th>
     </tr></thead><tbody>{runs.map((run) => <tr key={run.run_id}>
-      <td><button onClick={() => setSelected(run)}>{new Date(run.started_at).toLocaleString()}</button></td>
+      <td><Link to={runPath(run.run_id)}>{new Date(run.started_at).toLocaleString()}</Link></td>
       <td>{run.source_instance}</td><td>{run.source_type}</td><td>{run.trigger}</td>
       <td><span className={`run-status run-status-${run.status.toLowerCase()}`}>{run.status.replaceAll('_', ' ')}</span></td>
       <td>{duration(run.duration_ms)}</td><td>{changes(run)}</td></tr>)}</tbody></table></div>}
     {selected && <section className="run-detail"><div className="component-heading"><h2>Run details</h2>
-      <button onClick={() => setSelected(null)}>Close</button></div>
+      <Link to="/runs">Back to runs</Link></div>
       <dl className="source-detail">
         <div><dt>Run ID</dt><dd>{selected.run_id}</dd></div>
         <div><dt>Source</dt><dd>{selected.source_instance}</dd></div>

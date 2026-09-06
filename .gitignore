@@ -10,3 +10,7 @@ __pycache__/
 # Local configuration
 .env
 .env.*
+
+# Local browser validation
+frontend/test-results/
+frontend/playwright-report/

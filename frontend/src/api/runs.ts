@@ -35,3 +35,11 @@ export async function fetchRuns(signal: AbortSignal): Promise<SyncRun[]> {
   if (!record(value) || !Array.isArray(value.runs) || !value.runs.every(isSyncRun)) throw new Error('History could not be loaded.');
   return value.runs;
 }
+
+export async function fetchRun(id: string, signal: AbortSignal): Promise<SyncRun> {
+ const response = await fetch('/api/v1/runs/' + encodeURIComponent(id), { signal, cache: 'no-store' });
+ if (!response.ok) throw new Error('Run could not be loaded.');
+ const value: unknown = await response.json();
+ if (!isSyncRun(value) || value.run_id !== id) throw new Error('Run returned malformed data.');
+ return value;
+}

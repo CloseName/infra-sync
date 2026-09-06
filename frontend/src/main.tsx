@@ -1,28 +1,13 @@
-import { StrictMode, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import { SystemHealthPage } from './pages/SystemHealthPage';
-import { SourcesPage } from './pages/SourcesPage';
-import { AddSourcePage } from './pages/AddSourcePage';
-import { RunsPage } from './pages/RunsPage';
-import { DiagnosticsPage } from './pages/DiagnosticsPage';
-import './styles.css';
-
-function App() {
-  const [page, setPage] = useState<'health' | 'diagnostics' | 'sources' | 'add' | 'runs'>('health');
-  return <>
-    <header className="topbar"><a className="brand" href="/">Infra<span>Sync</span></a>
-      <span className="mode">INFRA SYNC · SOURCE CONTROL</span></header>
-    <nav aria-label="Main navigation" className="navigation">
-      <button aria-pressed={page === 'health'} onClick={() => setPage('health')}>System Health</button>
-      <button aria-pressed={page === 'diagnostics'} onClick={() => setPage('diagnostics')}>Diagnostics</button>
-      <button aria-pressed={page === 'sources'} onClick={() => setPage('sources')}>Sources</button>
-      <button aria-pressed={page === 'add'} onClick={() => setPage('add')}>Add Source</button>
-      <button aria-pressed={page === 'runs'} onClick={() => setPage('runs')}>Runs</button>
-    </nav>
-    {page === 'health' ? <SystemHealthPage /> : page === 'diagnostics' ? <DiagnosticsPage />
-      : page === 'sources' ? <SourcesPage />
-      : page === 'runs' ? <RunsPage /> : <AddSourcePage />}
-  </>;
-}
-
-createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import { App } from "./App";
+import "./styles.css";
+import "./ui/foundation.css";
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </StrictMode>,
+);

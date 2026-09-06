@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { fetchSource, fetchSources } from '../api/sources';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { fetchSource } from '../api/sources';
 import type { Source } from '../api/sources';
 import { runDiscovery } from '../api/discovery';
 import type { DiscoveryResult } from '../api/discovery';
@@ -19,8 +20,10 @@ const detailLabels: Record<keyof Source, string> = {
 };
 
 export function SourcesPage() {
-  const [sources, setSources] = useState<Source[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const { sourceInstance } = useParams();
+  const selected = sourceInstance ?? null;
+  const location = useLocation();
+  const from = typeof location.state?.from === 'string' && /^\/sources(?:\?|$)/.test(location.state.from) ? location.state.from : '/sources';
   const [detail, setDetail] = useState<Source | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -82,7 +85,7 @@ export function SourcesPage() {
           return null;
         });
       }).then((scheduling) => { if (active && scheduling) { setSchedule(scheduling); setScheduleEnabled(scheduling.sync_enabled); setScheduleInterval(scheduling.sync_interval_seconds); } })
-      : fetchSources(controller.signal).then((value) => { if (active) setSources(value); });
+      : Promise.resolve(null);
     operation.catch((failure: unknown) => {
       if (active) setError(failure instanceof Error ? failure.message : 'Source data unavailable.');
     }).finally(() => { window.clearTimeout(timeout); if (active) setLoading(false); });
@@ -96,20 +99,9 @@ export function SourcesPage() {
         Connectivity and authentication are not checked here.</p></div>
       <button disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button>
     </div>
-    {selected && <button onClick={() => { setSelected(null); setDiscovery(null); setSyncPlan(null); setSyncResult(null); setSchedule(null); }}>Back to sources</button>}
+    <Link to={from}>Back to sources</Link>
     {loading && <p role="status">Loading source configuration…</p>}
     {!loading && error && <p role="alert" className="source-error">{error}</p>}
-    {!loading && !error && !selected && (sources.length === 0
-      ? <p>No registered sources.</p>
-      : <div className="source-table"><table><thead><tr>
-        <th>Source instance</th><th>Type</th><th>Address</th><th>Site</th><th>Cluster</th>
-        <th>Enabled</th><th>Automatic sync</th><th>Interval</th><th>Status</th>
-      </tr></thead><tbody>{sources.map((source) => <tr key={source.source_instance}>
-        <td><button onClick={() => { setSyncResult(null); setSelected(source.source_instance); }}>{source.source_instance}</button></td>
-        <td>{source.type}</td><td>{source.address}</td><td>{source.site_slug}</td><td>{source.cluster_name}</td>
-        <td>{source.enabled ? 'Yes' : 'No'}</td><td>{source.sync_enabled ? 'Configured on' : 'Configured off'}</td>
-        <td>{source.sync_interval_seconds}s</td><td>{source.status.replaceAll('_', ' ')}</td>
-      </tr>)}</tbody></table></div>)}
     {!loading && !error && detail && <><dl className="source-detail">
       {(Object.keys(detailLabels) as (keyof Source)[]).map((key) => <div key={key}>
         <dt>{detailLabels[key]}</dt><dd>{typeof detail[key] === 'boolean'
@@ -136,14 +128,14 @@ export function SourcesPage() {
       {discovery && <><div className="summary-grid">{Array.from(new Set(discovery.items.map((item) => item.classification))).map((classification) => <div key={classification}><strong>{classification.replaceAll('_', ' ')}</strong> <span>{discovery.items.filter((item) => item.classification === classification).length}</span></div>)}</div>
         <div className="filters"><label>Classification <select value={classFilter} onChange={(event) => setClassFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.classification))).map((value) => <option key={value}>{value}</option>)}</select></label>
           <label>Object kind <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}><option>ALL</option>{Array.from(new Set(discovery.items.map((item) => item.object_kind))).map((value) => <option key={value}>{value}</option>)}</select></label></div>
-        <div className="source-table"><table><thead><tr><th>Kind</th><th>Name</th><th>Classification</th><th>Reason</th><th>Future action</th><th>NetBox match</th></tr></thead><tbody>{discovery.items.filter((item) => (classFilter === 'ALL' || item.classification === classFilter) && (kindFilter === 'ALL' || item.object_kind === kindFilter)).map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.classification.replaceAll('_', ' ')}</td><td>{item.reason} ({item.reason_code})</td><td>{item.future_action}</td><td>{item.matched_object_name || '—'}</td></tr>)}</tbody></table></div></>}
+        <div className="source-table"><table><thead><tr><th scope="col">Kind</th><th scope="col">Name</th><th scope="col">Classification</th><th scope="col">Reason</th><th scope="col">Future action</th><th scope="col">NetBox match</th></tr></thead><tbody>{discovery.items.filter((item) => (classFilter === 'ALL' || item.classification === classFilter) && (kindFilter === 'ALL' || item.object_kind === kindFilter)).map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.classification.replaceAll('_', ' ')}</td><td>{item.reason} ({item.reason_code})</td><td>{item.future_action}</td><td>{item.matched_object_name || '—'}</td></tr>)}</tbody></table></div></>}
     </section><section className="discovery-review"><h2>Plan / Sync Now</h2>
       <p>Build a read-only exact plan, review it, then explicitly confirm one source.</p>
       <button disabled={syncing || !detail.enabled} onClick={buildPlan}>Build plan</button>
       {syncing && <p role="status">Checking the current plan…</p>}
       {syncPlan && <><p>Plan digest: <code>{syncPlan.digest}</code></p>
         <div className="summary-grid">{actions(syncPlan).map(([action, count]) => <div key={action}><strong>{action.replaceAll('_', ' ')}</strong> <span>{count}</span></div>)}</div>
-        <div className="source-table"><table><thead><tr><th>Kind</th><th>Name</th><th>Action</th><th>Reason</th></tr></thead><tbody>{syncPlan.items.map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.action}</td><td>{item.reason}</td></tr>)}</tbody></table></div>
+        <div className="source-table"><table><thead><tr><th scope="col">Kind</th><th scope="col">Name</th><th scope="col">Action</th><th scope="col">Reason</th></tr></thead><tbody>{syncPlan.items.map((item) => <tr key={`${item.object_kind}:${item.external_id}`}><td>{item.object_kind}</td><td>{item.name}</td><td>{item.action}</td><td>{item.reason}</td></tr>)}</tbody></table></div>
         <button disabled={!syncPlan.apply_allowed || syncing} onClick={syncNow}>Sync Now</button></>}
       {visibleSyncResult && <p role={visibleSyncResult.kind === 'error' ? 'alert' : 'status'}
         className={visibleSyncResult.kind === 'error' ? 'source-error' : undefined}>{visibleSyncResult.message}</p>}

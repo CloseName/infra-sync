@@ -47,8 +47,8 @@ export function DiagnosticsPage() {
           {component.last_seen_at && <p>Last activity: {time(component.last_seen_at)}</p>}</article>;
       })}</section>
       <h2>Sources</h2>{data.sources.length === 0 ? <p>No sources configured.</p> :
-        <div className="source-table"><table><thead><tr><th>Source</th><th>Type</th><th>Status</th>
-          <th>Schedule</th><th>Last Run</th><th>Last Success</th><th>Next Expected</th><th>Trigger</th><th>Warnings</th></tr></thead>
+        <div className="source-table"><table><thead><tr><th scope="col">Source</th><th scope="col">Type</th><th scope="col">Status</th>
+          <th scope="col">Schedule</th><th scope="col">Last Run</th><th scope="col">Last Success</th><th scope="col">Next Expected</th><th scope="col">Trigger</th><th scope="col">Warnings</th></tr></thead>
           <tbody>{data.sources.map((source) => <tr key={source.source_instance}><td>{source.source_instance}</td>
             <td>{source.source_type}</td><td>{source.status}</td><td>{source.scheduler_state}</td><td>{time(source.latest_run?.started_at ?? null)}</td>
             <td>{time(source.latest_success_at)}</td><td>{time(source.next_expected_at)}</td><td>{source.latest_run?.trigger ?? 'None'}</td>

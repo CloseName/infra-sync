@@ -35,5 +35,5 @@ test('history page includes loading empty table detail and safe error states', (
   for (const text of ['Loading history...', 'No synchronization runs recorded yet.',
     'History could not be loaded.', 'Run details', 'Source type', 'Trigger', 'Changes',
     'Plan digest', 'Review required', 'error_message_safe']) assert.ok(page.includes(text));
-  assert.ok(page.includes('setSelected(run)'));
+  assert.ok(page.includes('runPath(run.run_id)'));
 });
