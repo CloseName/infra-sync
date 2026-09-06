@@ -39,6 +39,11 @@ SAFE_SCHEMA = re.compile(r'^[A-Za-z_][A-Za-z0-9_]{0,62}$')
 MAINTENANCE_SERVICES = (
     'infra-sync-api', 'infra-sync-secret-broker', 'infra-sync-discovery-worker',
     'infra-sync-apply-worker', 'infra-sync-schedule-worker')
+HOST_LOCAL_COMPOSE_KEYS = (
+    'INFRA_SYNC_COMPOSE_PROJECT', 'INFRA_SYNC_IMAGE', 'INFRA_SYNC_CONFIG_DIR',
+    'INFRA_SYNC_INFRA_SECRET_DIR', 'INFRA_SYNC_SOURCE_SECRET_DIR',
+    'INFRA_SYNC_NETBOX_SECRET_DIR', 'INFRA_SYNC_APPLY_LOCK_DIR',
+    'INFRA_SYNC_POSTGRES_VOLUME', 'INFRA_SYNC_WEB_PORT')
 
 
 class BackupError(RuntimeError):
@@ -698,6 +703,15 @@ def _publish_restored_state(root, restored):
     shutil.rmtree(rollback)
 
 
+def _preserve_host_local_config(root, restored):
+    """Keep the new host's deployment identity while restoring portable config."""
+    current = _read_env(root / 'config/compose.env')
+    values = {key: current[key] for key in HOST_LOCAL_COMPOSE_KEYS if key in current}
+    incoming = restored / 'config/compose.env'
+    payload = install._merged_config(incoming, values, values)  # pylint: disable=protected-access
+    install._atomic_write(incoming, payload)  # pylint: disable=protected-access
+
+
 def _start_restored_runtime(root, postgres_mode):
     """Start ordinary services, prove liveness/diagnostics, never enable the timer."""
     prepared = install.PreparedDeployment(
@@ -758,6 +772,7 @@ def restore_fresh(root, bundle, database, *, no_systemd=False, check_only=False)
                                  postgres_mode=database.mode)
         finally:
             shutil.rmtree(transition, ignore_errors=True)
+        _preserve_host_local_config(root, stage)
         _publish_restored_state(root, stage)
         _start_restored_runtime(root, database.mode)
     shutil.rmtree(stage, ignore_errors=True)

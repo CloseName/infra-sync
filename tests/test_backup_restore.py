@@ -313,6 +313,8 @@ def test_fresh_restore_replaces_state_and_runs_provisioning_in_order(
         'runtime-health']
     assert 'UNKNOWN_KEY=preserved' in (target / 'config/compose.env').read_text(
         encoding='utf-8')
+    assert 'INFRA_SYNC_COMPOSE_PROJECT=target-before-restore' in (
+        target / 'config/compose.env').read_text(encoding='utf-8')
     assert (target / 'secrets/sources/source-token').read_text(
         encoding='utf-8').strip() == 'not-a-real-source-secret'
 

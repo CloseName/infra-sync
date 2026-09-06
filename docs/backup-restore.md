@@ -143,7 +143,9 @@ The write sequence is:
 5. create a transient root-only password view containing the target bootstrap password
    and restored runtime passwords; the tracked `restore-role-passwords` operation
    rotates runtime roles first and bootstrap last;
-6. atomically replace `config` and `secrets`, preserving logical source refs,
+6. preserve the clean target's allowlisted host-local Compose project, image, bind
+   port, volume, lock, and canonical path values; then atomically replace `config`
+   and `secrets`, preserving portable operator keys, logical source refs,
    infrastructure passwords, NetBox token separation, owners, modes, and xattrs;
 7. compare source/run counts, credential references, and Alembic head;
 8. start ordinary API/control workers and require API health plus Diagnostics.
@@ -169,9 +171,11 @@ dirty: diagnose or recreate it before retrying. There is no automatic DB rollbac
 - Fresh restore is supported. Replacing a populated/unknown installation is not.
   There is intentionally no `--replace-existing`; use a fresh VM or a separately
   reviewed disaster runbook and pre-restore backup.
-- Fresh restore reproduces canonical operator config. Canonical production paths are
-  expected. Review external-DB or deliberately host-local values while the timer is
-  stopped. Backup and application upgrade remain separate operations.
+- Fresh restore reproduces portable operator config and unknown keys. It deliberately
+  retains the clean target Foundation's Compose project, application image, web port,
+  PostgreSQL volume, apply-lock directory, and canonical config/secret paths. Review
+  external-DB or future host-local values while the timer is stopped. Backup and
+  application upgrade remain separate operations.
 - xattrs are mandatory for broker-created source secrets. A filesystem without
   working `user.*` xattrs is unsupported and fails closed.
 
