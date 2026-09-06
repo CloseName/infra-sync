@@ -48,6 +48,10 @@ existing-table validation requires a live PostgreSQL connection.
 - Current SourceRegistry.initialize() remains unchanged for compatibility. Once
   migrated, operators use Alembic for schema evolution rather than extending
   initialize(). Future revisions must remain independent of mutable runtime code.
+- Before Alembic begins, the canonical migration command verifies ownership of the
+  database, registry schema and all existing registry tables. Existing objects must be
+  owned by `infra_sync_owner`; a mismatch fails before DDL. Ownership is never silently
+  reassigned by the migration command.
 
 The migration owner is provisioned separately from runtime roles. The tracked
 `infra-sync-db-grants` operation reapplies the exact least-privilege matrix after

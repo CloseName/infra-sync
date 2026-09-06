@@ -57,12 +57,26 @@ python3 deploy/install.py --check
 sudo python3 deploy/install.py --release-id <release-id>
 ```
 
-`--check` is read-only. `--prepare-only`, `--no-start`, and `--no-systemd` provide
-bounded rehearsal/operator modes. The normal order is: create layout and credentials,
-activate the release, start PostgreSQL, wait for readiness, bootstrap roles, migrate,
-apply grants, start long-running services, install tracked units, then enable the timer.
-Running the same release again reuses passwords and data and reruns only idempotent
-provisioning steps; it does not delete sources or reset secrets.
+`--check` is read-only. Every install requires an explicit release ID; an existing ID
+may be reused only when its packaged content is identical. `--prepare-only` performs
+image/database preparation while leaving `current` unchanged and the timer stopped.
+`--no-start` activates prepared files and installs units without starting application
+services or the timer. `--no-systemd` omits unit installation; an upgrade still uses
+the existing timer and shared-lock coordination when systemd is present.
+
+The normal flow is explicitly split into PREPARE and ACTIVATE. PREPARE copies and
+validates an immutable release, creates a protected staged configuration, validates
+and builds the Compose artifact, starts/waits for PostgreSQL, bootstraps roles, checks
+legacy object ownership, migrates and reapplies grants. It does not change `current`.
+ACTIVATE publishes the staged config, atomically switches `current`, installs units,
+starts the long-running services, verifies that they and API liveness are ready, and
+only then enables the timer.
+
+Existing config values and unknown operator keys are retained verbatim. Missing known
+keys are appended, while the installer-owned image/config-directory fields track the
+prepared release. Existing passwords are reused. No env file is evaluated as shell.
+This means a repeated install does not blank NetBox URLs, replace custom external-DB
+DSNs, delete sources, reset secrets or remove history.
 
 The generated `compose.env` and service env files are Docker env files, **not shell
 scripts**. Never use `source file` or `. file`; libpq values may contain spaces. Pass
@@ -116,6 +130,26 @@ The wrapper is the **only** scheduled `flock` owner. It locks
 opens the same inode. A still-running oneshot cannot be started again by the timer, and
 the shared lock remains the final barrier against manual/scheduled overlap.
 
+## Safe upgrade and failure behavior
+
+For an existing canonical install the installer stops the timer, then waits up to two
+minutes for `/run/infra-sync/apply.lock`. It never kills an active apply. Holding that
+same lock prevents manual and scheduled writers throughout database preparation and
+activation; there is no second deployment lock.
+
+A release-copy, config-merge, image-build, PostgreSQL-readiness, ownership, migration
+or grants failure leaves the previous `current` and live config untouched. The timer
+remains stopped so an operator can investigate safely. A bounded activation failure
+restores the previous symlink and config where possible; any uncertain failure is
+reported as failure and never restarts the timer. Database migrations are forward-only
+and are **not** automatically rolled back. Back up and rehearse before every upgrade.
+
+The known legacy
+`/etc/systemd/system/infra-netbox-sync.timer.d/web8-fixed-tick.conf` is not deleted
+automatically. Remove that exact reviewed override during the existing-host transition,
+then run `systemctl daemon-reload` before activation. Unknown overrides are never
+deleted by the installer.
+
 ## Optional external PostgreSQL
 
 Bundled PostgreSQL is intentionally the default. For an operator-managed PostgreSQL,
@@ -134,6 +168,13 @@ populate generated service env files, build a pinned image, install the tracked 
 then validate shared-lock contention before enabling manual or scheduled apply. The old
 `compose.yml`, `compose.web.yml`, `compose.apply.yml`, and `scripts/run-full-sync.sh`
 remain explicit compatibility artifacts only; they are not the clean-install path.
+
+Before migrating an existing registry, the migration command verifies that the
+database, selected schema and every existing table in that schema are owned by
+`infra_sync_owner`. Missing schema is valid for a clean install. A legacy owner mismatch
+fails before Alembic DDL with safe operator guidance; the installer never performs a
+hidden ownership takeover. Reassign ownership only through a separately reviewed,
+backup-backed transition procedure.
 
 Full backup/restore, final naming, interactive onboarding, RBAC/LDAPS, TLS/reverse proxy,
 resource limits, run-history retention and stale-run recovery are deliberately deferred.

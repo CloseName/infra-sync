@@ -4,6 +4,8 @@
 
 ### New
 
+- Harden the canonical installer with preserving config merges, staged release
+  activation, shared-lock upgrade coordination, and legacy ownership preflight.
 - Persist separate manual and scheduled synchronization outcomes in PostgreSQL.
 - Add read-only run history list/detail API endpoints and an operator Runs view.
 - Add safe read-only diagnostics for registry, history, workers, scheduled activity, and sources.
