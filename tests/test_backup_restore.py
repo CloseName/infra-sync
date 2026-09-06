@@ -62,7 +62,7 @@ class FakeDatabase:
     def validate_foundation_target(self):
         return None
 
-    def restore(self, dump):
+    def restore_fresh(self, dump, _maintenance):
         self.verify_dump(dump)
         self.restore_calls += 1
 
@@ -386,7 +386,64 @@ def test_database_tool_never_places_external_dsn_in_argv(monkeypatch, tmp_path):
     assert tool.postgres_major() == 16
     command, environment = observed[0]
     assert literal not in ' '.join(command)
-    assert environment['PGDATABASE'] == literal
+    assert literal not in environment.values()
+    assert environment['PGHOST'] == 'example'
+    assert environment['PGDATABASE'] == 'infra_sync_backup_test'
+    assert environment['PGUSER'] == 'operator'
+    assert environment['PGPASSWORD'] == 'secret'
+    assert 'INFRA_SYNC_BACKUP_DSN' not in environment
+
+
+def test_external_restore_selects_database_without_exposing_dsn(monkeypatch, tmp_path):
+    observed = []
+    literal = 'postgresql://operator:secret@example/infra_sync_backup_test'
+    tool = backup.DatabaseTool(tmp_path, 'external', {'INFRA_SYNC_BACKUP_DSN': literal})
+    monkeypatch.setattr(
+        tool, '_run',
+        lambda executable, arguments, **kwargs: observed.append(
+            (executable, arguments, kwargs)))
+
+    tool.restore(tmp_path / 'database.dump')
+
+    arguments = observed[0][1]
+    assert arguments[-2:] == ('--dbname', 'infra_sync_backup_test')
+    assert literal not in ' '.join(arguments)
+
+
+def test_fresh_database_restore_requires_live_maintenance_boundary(monkeypatch,
+                                                                   tmp_path):
+    observed = []
+    tool = backup.DatabaseTool(tmp_path)
+    monkeypatch.setattr(tool, 'validate_foundation_target', lambda: None)
+    monkeypatch.setattr(tool, 'target_counts', lambda: (0, 0))
+    monkeypatch.setattr(
+        tool, '_run',
+        lambda executable, arguments, **kwargs: observed.append(
+            (executable, arguments, kwargs)))
+
+    class MaintenanceBoundary:
+        def __init__(self, authorized):
+            self.authorized = authorized
+
+        def authorizes_fresh_restore(self, root, mode):
+            return self.authorized and root == tmp_path and mode == 'bundled'
+
+    with pytest.raises(backup.BackupError, match='maintenance boundary'):
+        tool.restore_fresh(tmp_path / 'database.dump', MaintenanceBoundary(False))
+    assert observed == []
+
+    tool.restore_fresh(tmp_path / 'database.dump', MaintenanceBoundary(True))
+    assert [entry[0] for entry in observed] == ['psql', 'pg_restore']
+    cleanup = observed[0][1][-1]
+    assert cleanup == (
+        'DROP TABLE IF EXISTS infra_sync.sync_runs; '
+        'DROP TABLE IF EXISTS infra_sync.sources; '
+        'DROP TABLE IF EXISTS infra_sync.schema_meta; '
+        'DROP TABLE IF EXISTS infra_sync.alembic_version; '
+        'DROP SCHEMA infra_sync')
+    assert 'CASCADE' not in cleanup
+    assert observed[1][2]['input_file'] == tmp_path / 'database.dump'
+    assert '--clean' not in observed[1][1]
 
 
 def test_bundle_inspection_is_allowlisted(bundle_setup):

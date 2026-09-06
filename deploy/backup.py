@@ -17,6 +17,9 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from psycopg import pq
+from psycopg.conninfo import conninfo_to_dict
+
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -250,12 +253,35 @@ class DatabaseTool:
     def _environment(self):
         environment = self.environ.copy()
         if self.mode == 'external':
-            environment['PGDATABASE'] = environment['INFRA_SYNC_BACKUP_DSN']
+            dsn = environment.pop('INFRA_SYNC_BACKUP_DSN')
+            try:
+                settings = conninfo_to_dict(dsn)
+            except Exception as exc:  # pylint: disable=broad-exception-caught
+                raise BackupError('external PostgreSQL backup DSN is invalid') from exc
+            options = {
+                option.keyword.decode(): option.envvar.decode()
+                for option in pq.Conninfo.get_defaults() if option.envvar
+            }
+            for key, value in settings.items():
+                env_name = options.get(key)
+                if env_name:
+                    environment[env_name] = value
         return environment
 
     def _connection_arguments(self):
         return (() if self.mode == 'external' else
                 ('--username', 'infra_sync_bootstrap', '--dbname', 'infra_sync'))
+
+    def _restore_connection_arguments(self):
+        if self.mode != 'external':
+            return '--username', 'infra_sync_bootstrap', '--dbname', 'infra_sync'
+        try:
+            database = conninfo_to_dict(self.environ['INFRA_SYNC_BACKUP_DSN']).get('dbname')
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            raise BackupError('external PostgreSQL backup DSN is invalid') from exc
+        if not database:
+            raise BackupError('external PostgreSQL backup database is unavailable')
+        return '--dbname', database
 
     def _run(  # pylint: disable=too-many-arguments
             self, executable, arguments, *, input_file=None, output_file=None, text=False):
@@ -358,10 +384,30 @@ class DatabaseTool:
 
     def restore(self, dump):
         """Replace Foundation-only schema objects from the verified dump."""
-        connection = (() if self.mode == 'external' else
-                      ('--username', 'infra_sync_bootstrap', '--dbname', 'infra_sync'))
+        connection = self._restore_connection_arguments()
         self._run('pg_restore', (
             '--exit-on-error', '--clean', '--if-exists', '--no-owner', '--no-acl',
+            '--role=infra_sync_owner', *connection), input_file=dump)
+
+    def restore_fresh(self, dump, maintenance):
+        """Replace only an exact, empty Foundation target under maintenance."""
+        if not maintenance.authorizes_fresh_restore(self.root, self.mode):
+            raise BackupError('fresh restore maintenance boundary is unavailable')
+        self.validate_foundation_target()
+        if self.target_counts() != (0, 0):
+            raise BackupError('fresh restore target contains registry or run-history rows')
+        # Older reviewed dumps cannot name objects introduced by newer revisions.
+        # Delete only the exact, prevalidated Foundation allowlist; never CASCADE.
+        cleanup = '; '.join(
+            f'DROP TABLE IF EXISTS infra_sync.{name}'
+            for name in reversed(FOUNDATION_TABLES)
+        ) + '; DROP SCHEMA infra_sync'
+        self._run('psql', (
+            '--no-psqlrc', '--quiet', *self._connection_arguments(),
+            '--command', cleanup))
+        connection = self._restore_connection_arguments()
+        self._run('pg_restore', (
+            '--exit-on-error', '--no-owner', '--no-acl',
             '--role=infra_sync_owner', *connection), input_file=dump)
 
 
@@ -527,14 +573,17 @@ class Maintenance:
 
     def __post_init__(self):
         self.timer_active = False
+        self.timer_stopped = False
         self.running = ()
         self.release = self.root / 'current'
         self.lock = None
         self.lock_entered = False
+        self.writers_stopped = False
 
     def __enter__(self):
         if not self.no_systemd:
             self.timer_active = install.stop_timer()
+        self.timer_stopped = True
         lock = self.root / 'run/apply.lock' if self.root != Path('/opt/infra-sync') \
             else Path('/run/infra-sync/apply.lock')
         self.lock = install.shared_apply_lock(lock)
@@ -548,6 +597,7 @@ class Maintenance:
                                  if service in MAINTENANCE_SERVICES)
             install.run(_compose_command(
                 self.root, 'stop', *MAINTENANCE_SERVICES, mode=self.postgres_mode))
+            self.writers_stopped = True
         except Exception:
             if self.lock_entered:
                 self.lock.__exit__(*sys.exc_info())
@@ -555,6 +605,17 @@ class Maintenance:
                 install.run(['systemctl', 'start', 'infra-netbox-sync.timer'], check=False)
             raise
         return self
+
+    def authorizes_fresh_restore(self, root, postgres_mode):
+        """Prove destructive fresh-target work is inside this maintenance window."""
+        return (
+            not self.restore_after
+            and self.timer_stopped
+            and self.lock_entered
+            and self.writers_stopped
+            and self.root.resolve() == Path(root).resolve()
+            and self.postgres_mode == postgres_mode
+        )
 
     def __exit__(self, kind, value, traceback):
         try:
@@ -568,6 +629,8 @@ class Maintenance:
         finally:
             if self.lock_entered:
                 self.lock.__exit__(kind, value, traceback)
+            self.writers_stopped = False
+            self.lock_entered = False
         return False
 
 
@@ -748,12 +811,13 @@ def restore_fresh(root, bundle, database, *, no_systemd=False, check_only=False)
     stage = Path(tempfile.mkdtemp(prefix='restore-state-', dir=root / 'state'))
     stage.chmod(0o700)
     with Maintenance(root, restore_after=False, no_systemd=no_systemd,
-                     postgres_mode=database.mode):
+                     postgres_mode=database.mode) as maintenance:
+        database.validate_foundation_target()
         if database.target_counts() != (0, 0):
             raise BackupError('fresh restore target contains registry or run-history rows')
         _tar_extract(bundle / 'state.tar', stage)
         _validate_restored_files(stage, manifest)
-        database.restore(bundle / 'database.dump')
+        database.restore_fresh(bundle / 'database.dump', maintenance)
         _run_deployment_tool(root, 'infra-sync-migrate', postgres_mode=database.mode)
         _run_deployment_tool(root, 'infra-sync-db-grants', postgres_mode=database.mode)
         restored = database.metadata()
