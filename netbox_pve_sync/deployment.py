@@ -140,12 +140,49 @@ def bootstrap_roles(environ=None):
                     sql.Identifier(database), sql.Identifier(role)))
 
 
+def validate_migration_ownership(environ=None):
+    """Fail before Alembic if an existing registry is owned by another role."""
+    environ = environ or os.environ
+    schema = environ.get('INFRA_SYNC_REGISTRY_SCHEMA', 'infra_sync')
+    if not SCHEMA_NAME_PATTERN.fullmatch(schema):
+        raise DeploymentError('INFRA_SYNC_REGISTRY_SCHEMA is invalid')
+    expected = DATABASE_ROLES['owner']
+    with psycopg.connect(connection_info('owner', environ)) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()')
+            database_owner = cursor.fetchone()
+            if database_owner is None or database_owner[0] != expected:
+                raise DeploymentError(
+                    'existing registry ownership is incompatible; inspect database owner')
+            cursor.execute(
+                'SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname=%s',
+                (schema,),
+            )
+            schema_owner = cursor.fetchone()
+            if schema_owner is None:
+                return
+            if schema_owner[0] != expected:
+                raise DeploymentError(
+                    'existing registry ownership is incompatible; inspect schema owner')
+            cursor.execute(
+                'SELECT c.relname, pg_get_userbyid(c.relowner) '
+                'FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace '
+                "WHERE n.nspname=%s AND c.relkind IN ('r', 'p')",
+                (schema,),
+            )
+            if any(owner != expected for _name, owner in cursor.fetchall()):
+                raise DeploymentError(
+                    'existing registry ownership is incompatible; inspect table owners')
+
+
 def migrate(environ=None):
     """Run the reviewed Alembic chain as owner, using an injected connection."""
     environ = environ or os.environ
     schema = environ.get('INFRA_SYNC_REGISTRY_SCHEMA', 'infra_sync')
     if not SCHEMA_NAME_PATTERN.fullmatch(schema):
         raise DeploymentError('INFRA_SYNC_REGISTRY_SCHEMA is invalid')
+    validate_migration_ownership(environ)
     engine = sa.create_engine(
         'postgresql+psycopg://',
         creator=lambda: psycopg.connect(connection_info('owner', environ)),

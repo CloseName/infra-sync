@@ -5,6 +5,7 @@ import secrets
 
 import psycopg
 import pytest
+from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
 from netbox_pve_sync import deployment
@@ -41,9 +42,11 @@ def _environment(tmp_path):
 def test_clean_bootstrap_migrate_grants_and_idempotency(tmp_path):
     env = _environment(tmp_path)
     deployment.bootstrap_roles(env)
+    deployment.validate_migration_ownership(env)
     deployment.migrate(env)
     deployment.apply_grants(env)
     deployment.bootstrap_roles(env)
+    deployment.validate_migration_ownership(env)
     deployment.migrate(env)
     deployment.apply_grants(env)
 
@@ -130,3 +133,24 @@ def test_runtime_role_grants_are_column_limited(tmp_path):
                            (deployment.DATABASE_ROLES['run_writer'],
                             'infra_sync.sources', 'SELECT'))
             assert cursor.fetchone() == (False,)
+
+
+def test_migration_ownership_preflight_rejects_foreign_schema_owner(tmp_path):
+    env = _environment(tmp_path)
+    deployment.bootstrap_roles(env)
+    deployment.migrate(env)
+    owner = deployment.DATABASE_ROLES['owner']
+    foreign = deployment.DATABASE_ROLES['discovery_reader']
+    with psycopg.connect(deployment.connection_info('bootstrap', env), autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(sql.SQL('ALTER SCHEMA infra_sync OWNER TO {}').format(
+                sql.Identifier(foreign)))
+    try:
+        with pytest.raises(deployment.DeploymentError, match='schema owner'):
+            deployment.validate_migration_ownership(env)
+    finally:
+        with psycopg.connect(
+                deployment.connection_info('bootstrap', env), autocommit=True) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(sql.SQL('ALTER SCHEMA infra_sync OWNER TO {}').format(
+                    sql.Identifier(owner)))
