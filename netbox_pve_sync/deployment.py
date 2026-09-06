@@ -34,6 +34,7 @@ PASSWORD_FILES = {
     'bootstrap': 'postgres_bootstrap_password',
     **{key: key + '_password' for key in DATABASE_ROLES},
 }
+RESTORE_BOOTSTRAP_FILE = 'postgres_bootstrap_password_next'
 SOURCE_COLUMNS = (
     'id', 'source_instance', 'name', 'source_type', 'address', 'enabled',
     'sync_enabled', 'sync_interval_seconds', 'verify_ssl', 'site_slug',
@@ -138,6 +139,33 @@ def bootstrap_roles(environ=None):
             for role in DATABASE_ROLES.values():
                 cursor.execute(sql.SQL('GRANT CONNECT ON DATABASE {} TO {}').format(
                     sql.Identifier(database), sql.Identifier(role)))
+
+
+def restore_role_passwords(environ=None):
+    """Rotate fixed roles to restored files, changing bootstrap last.
+
+    The password directory is a short-lived, root-only restore staging directory.
+    Its ordinary bootstrap file contains the current target password while the
+    fixed ``*_password`` files contain the restored runtime passwords.  Changing
+    the bootstrap role last keeps the provisioning connection recoverable.
+    """
+    environ = environ or os.environ
+    bootstrap_next = Path(_required_setting('INFRA_SYNC_DB_PASSWORD_DIR', environ)) / \
+        RESTORE_BOOTSTRAP_FILE
+    try:
+        if (bootstrap_next.is_symlink() or not bootstrap_next.is_file()
+                or bootstrap_next.stat().st_size > 4096):
+            raise DeploymentError('invalid restored bootstrap credential file')
+        next_password = bootstrap_next.read_text(encoding='utf-8').rstrip('\r\n')
+    except OSError as exc:
+        raise DeploymentError('restored bootstrap credential unavailable') from exc
+    if not next_password or '\n' in next_password or '\r' in next_password:
+        raise DeploymentError('invalid restored bootstrap credential file')
+
+    bootstrap_roles(environ)
+    with psycopg.connect(connection_info('bootstrap', environ), autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            _execute_role(cursor, 'infra_sync_bootstrap', next_password)
 
 
 def validate_migration_ownership(environ=None):
@@ -276,12 +304,14 @@ def apply_grants(environ=None):
 def main(argv=None):
     """Run one explicit provisioning operation with sanitized failures."""
     parser = argparse.ArgumentParser(description='Infra Sync deployment database tool')
-    parser.add_argument('operation', choices=('bootstrap-roles', 'migrate', 'apply-grants'))
+    parser.add_argument('operation', choices=(
+        'bootstrap-roles', 'migrate', 'apply-grants', 'restore-role-passwords'))
     args = parser.parse_args(argv)
     actions = {
         'bootstrap-roles': bootstrap_roles,
         'migrate': migrate,
         'apply-grants': apply_grants,
+        'restore-role-passwords': restore_role_passwords,
     }
     try:
         actions[args.operation]()

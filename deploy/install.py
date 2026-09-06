@@ -39,6 +39,7 @@ CONFIG_NAMES = ('compose.env', 'api.env', 'discovery.env', 'apply.env',
 ENV_KEY_PATTERN = re.compile(r'^[A-Z][A-Z0-9_]*$')
 REQUIRED_RELEASE_FILES = (
     'compose.production.yml', 'Dockerfile.web',
+    'deploy/backup.py',
     'deploy/systemd/infra-netbox-sync.service',
     'deploy/systemd/infra-netbox-sync.timer', 'scripts/run-scheduled-sync.sh',
 )
@@ -341,12 +342,15 @@ def prepare_layout(root, source, release_id, image):
     return PreparedDeployment(root, release, config, image)
 
 
-def compose_command(root, *arguments, release=None, config=None):
+def compose_command(root, *arguments, release=None, config=None, overrides=()):
     """Build one argv using Compose env-file semantics, never shell sourcing."""
     release = release or root / 'current'
     config = config or root / 'config'
+    files = ['-f', str(release / 'compose.production.yml')]
+    for override in overrides:
+        files.extend(('-f', str(override)))
     return ['docker', 'compose', '--env-file', str(config / 'compose.env'),
-            '-f', str(release / 'compose.production.yml'), *arguments]
+            *files, *arguments]
 
 
 def _wait_for_postgres(root, release, config):
@@ -379,15 +383,17 @@ def _runtime_services():
             'infra-sync-apply-worker', 'infra-sync-schedule-worker')
 
 
-def start_runtime(prepared):
+def start_runtime(prepared, *, overrides=()):
     """Start the prepared application and require every long-running service."""
     command = compose_command(prepared.root, 'up', '-d', *_runtime_services(),
-                              release=prepared.release, config=prepared.root / 'config')
+                              release=prepared.release, config=prepared.root / 'config',
+                              overrides=overrides)
     run(command)
     for _attempt in range(30):
         status = run(compose_command(
             prepared.root, 'ps', '--status', 'running', '--services',
-            release=prepared.release, config=prepared.root / 'config'),
+            release=prepared.release, config=prepared.root / 'config',
+            overrides=overrides),
                      check=False, capture_output=True)
         running = set(status.stdout.split()) if status.returncode == 0 else set()
         if set(_runtime_services()).issubset(running):
@@ -395,7 +401,8 @@ def start_runtime(prepared):
                 prepared.root, 'exec', '-T', 'infra-sync-api', 'python', '-c',
                 "import urllib.request; urllib.request.urlopen("
                 "'http://127.0.0.1:8000/api/v1/health', timeout=2).close()",
-                release=prepared.release, config=prepared.root / 'config'),
+                release=prepared.release, config=prepared.root / 'config',
+                overrides=overrides),
                          check=False)
             if health.returncode == 0:
                 return

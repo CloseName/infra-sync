@@ -166,6 +166,21 @@ services:
     networks: [infra-sync-db]
     restart: "no"
 
+  infra-sync-db-restore-roles:
+    <<: *app
+    profiles: [tools]
+    user: "0:0"
+    command: [python, -m, netbox_pve_sync.deployment, restore-role-passwords]
+    environment:
+      INFRA_SYNC_DB_HOST: ${INFRA_SYNC_DB_HOST:-postgres}
+      INFRA_SYNC_DB_PORT: ${INFRA_SYNC_DB_PORT:-5432}
+      INFRA_SYNC_DB_NAME: ${INFRA_SYNC_DB_NAME:-infra_sync}
+      INFRA_SYNC_DB_PASSWORD_DIR: /run/secrets/infra-sync-db
+    volumes:
+      - ${INFRA_SYNC_RESTORE_PASSWORD_DIR:-./deploy/example-secrets/infrastructure}:/run/secrets/infra-sync-db:ro
+    networks: [infra-sync-db]
+    restart: "no"
+
 volumes:
   infra-sync-postgres:
     name: ${INFRA_SYNC_POSTGRES_VOLUME:-infra-sync-postgres-data}

@@ -12,3 +12,5 @@ services:
     networks: [infra-sync-egress]
   infra-sync-db-grants:
     networks: [infra-sync-egress]
+  infra-sync-db-restore-roles:
+    networks: [infra-sync-egress]
