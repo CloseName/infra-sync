@@ -57,7 +57,7 @@ container repr() is suppressed, without changing runtime fields or resolution.
 
 ### Root broker, socket and mounts
 
-The opt-in infra-sync-secret-broker service runs UID/GID 0:0, supplementary GID
+The opt-in netbox-sync-secret-broker service runs UID/GID 0:0, supplementary GID
 10001, with cap_drop ALL, no-new-privileges, read-only root filesystem and
 network_mode=none. Its only mounts are the dedicated source-secret directory and
 the shared Unix-socket volume. It has no TCP listener and no Docker socket.
@@ -82,7 +82,7 @@ complete writes, fsync(file), and fsync(directory) before success. Existing file
 are never overwritten. No plaintext broker payloads are logged.
 
 Rollback requires the exact operation ID, logical key and random receipt from
-creation. These are stored as root-protected user.infra_sync.* extended file
+creation. These are stored as root-protected user.netbox_sync.* extended file
 attributes, together with a completion marker, fsynced before acknowledging.
 Rollback checks the receipt, operation, owner, mode, regular-file/link status and
 open-descriptor/path inode consistency immediately before unlink. Failed-create
@@ -127,8 +127,8 @@ but automatic background recovery after API crashes is not claimed by WEB-3.
 
 ### Database permissions (operator-only; never executed at startup)
 
-Keep INFRA_SYNC_REGISTRY_DSN on the WEB-2 SELECT-only role unchanged. Supply a
-separate INFRA_SYNC_REGISTRATION_DSN only for registration. The writer checks
+Keep NETBOX_SYNC_REGISTRY_DSN on the WEB-2 SELECT-only role unchanged. Supply a
+separate NETBOX_SYNC_REGISTRATION_DSN only for registration. The writer checks
 schema_version=1 and reuses SourceRegistry's canonical validation/encoding/decoding
 with an explicit adapter-owned INSERT transaction, never initialize(), migrations,
 UPDATE, DELETE or UPSERT. Existing runtime SourceRegistry semantics are unchanged.
@@ -152,8 +152,8 @@ against a compromised writer credential; those defaults are application policy.
 
 ### Operator deployment steps — not performed by this change
 
-- Prepare /opt/infra-sync/secrets/sources outside the repository, root:root 0700.
-  Set INFRA_SYNC_SOURCE_SECRET_DIR to that absolute directory. Do not chmod
+- Prepare /opt/netbox-sync/secrets/sources outside the repository, root:root 0700.
+  Set NETBOX_SYNC_SOURCE_SECRET_DIR to that absolute directory. Do not chmod
   existing unrelated secrets. Compose defaults are development paths only.
   Host root:root ownership assumes rootful Docker without UID remapping; verify
   actual host ownership and extended-attribute support before enabling the broker.
@@ -164,18 +164,18 @@ against a compromised writer credential; those defaults are application policy.
 - Start the web and onboarding profiles in the same Compose project. No broker
   dependency is added to the existing scheduler; registration fails safely if
   broker/writer configuration is absent. Read-only views still work.
-- Preserve loopback publication (production uses INFRA_SYNC_WEB_PORT=8001).
-  Set INFRA_SYNC_WRITE_HOSTS to exact browser-visible host:port values, including
+- Preserve loopback publication (production uses NETBOX_SYNC_WEB_PORT=8001).
+  Set NETBOX_SYNC_WRITE_HOSTS to exact browser-visible host:port values, including
   the chosen SSH tunnel endpoint, e.g. 127.0.0.1:18001. Do not use wildcards.
   For Vite development, explicitly allow the browser's 127.0.0.1:5173 authority;
   the default 8000 allowlist is for direct API-served frontend access.
 - Apply the reviewed compose.yml directory mount during deployment: the same
-  INFRA_SYNC_SOURCE_SECRET_DIR is mounted read-only at /run/secrets/infra-sync-sources in
+  NETBOX_SYNC_SOURCE_SECRET_DIR is mounted read-only at /run/secrets/netbox-sync-sources in
   the runtime, read-write in the broker, and never in the API. Existing individual
-  mounts remain, including /run/secrets/infra-sync/esxi_infra_sync_password. A Docker
+  mounts remain, including /run/secrets/netbox-sync/esxi_netbox_sync_password. A Docker
   smoke test found that a read-only parent mount cannot create the absent legacy
   child mountpoint, so the dedicated directory uses a separate sibling path.
-  FileSecretResolver retains /run/secrets/infra-sync as its first lookup and falls
+  FileSecretResolver retains /run/secrets/netbox-sync as its first lookup and falls
   back to the new directory only for a missing file, never for permission/validation
   errors. Custom resolver roots stay isolated unless a fallback is explicitly supplied.
   Both use identical flat logical references; do not rename old keys. New sources
@@ -184,7 +184,7 @@ against a compromised writer credential; those defaults are application policy.
 ### Unauthenticated write protection and limitations
 
 Writes require an allowlisted Host, matching Origin scheme/authority,
-X-Infra-Sync-CSRF: same-origin, JSON content type, bounded Content-Length and a
+X-NetBox-Sync-CSRF: same-origin, JSON content type, bounded Content-Length and a
 same-origin/none Sec-Fetch-Site value when present. No permissive CORS is enabled.
 The custom header forces cross-origin browser preflight; Origin/Host checks reject
 cross-site requests even if a caller bypasses preflight. This is not user
@@ -203,10 +203,10 @@ addresses remain denied even when allowlisted. Single-label/container-local name
 require an exact hostname allow entry. Normal internal DNS names resolving only to
 approved private IPs work by default. Operator variables are comma-separated:
 
-- INFRA_SYNC_ONBOARDING_ALLOWED_CIDRS
-- INFRA_SYNC_ONBOARDING_DENIED_CIDRS
-- INFRA_SYNC_ONBOARDING_ALLOWED_HOSTS
-- INFRA_SYNC_ONBOARDING_ALLOWED_SUFFIXES
+- NETBOX_SYNC_ONBOARDING_ALLOWED_CIDRS
+- NETBOX_SYNC_ONBOARDING_DENIED_CIDRS
+- NETBOX_SYNC_ONBOARDING_ALLOWED_HOSTS
+- NETBOX_SYNC_ONBOARDING_ALLOWED_SUFFIXES
 
 Any nonempty allow configuration becomes a restriction: every answer must match an
 allowed CIDR or the approved hostname/suffix. Denied CIDRs always win. Prefer narrow
@@ -299,7 +299,7 @@ From the repository root, using Python 3.12 or 3.13:
 ```sh
 python -m pip install -e ".[web]"
 python -m pip install -r requirements-dev.txt
-uvicorn netbox_pve_sync.api.app:create_app --factory --host 127.0.0.1 --port 8000 --no-access-log
+uvicorn netbox_sync.api.app:create_app --factory --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
 In a second terminal (Node 24 is used by Dockerfile.web):
@@ -318,7 +318,7 @@ npm run typecheck
 npm run build
 ```
 
-To serve the built shell locally, set INFRA_SYNC_WEB_DIST to the absolute
+To serve the built shell locally, set NETBOX_SYNC_WEB_DIST to the absolute
 `frontend/dist` directory before starting FastAPI. Only its index and assets are
 served; there is no arbitrary file browser or SPA catch-all.
 
@@ -326,12 +326,12 @@ served; there is no arbitrary file browser or SPA catch-all.
 
 | Variable | Use |
 |---|---|
-| INFRA_SYNC_REGISTRY_DSN | Existing registry connection convention; optional for degraded local startup; secret, never print it |
-| INFRA_SYNC_REGISTRY_SCHEMA | Existing registry schema convention; required for a configured registry |
+| NETBOX_SYNC_REGISTRY_DSN | Existing registry connection convention; optional for degraded local startup; secret, never print it |
+| NETBOX_SYNC_REGISTRY_SCHEMA | Existing registry schema convention; required for a configured registry |
 | NB_API_URL | Presence-only NetBox configuration signal |
 | NB_API_TOKEN / NB_API_TOKEN_FILE | Either counts as configuration present; neither resolved or returned |
-| INFRA_SYNC_WEB_DIST | Optional new API static-build directory; preset in Web image |
-| INFRA_SYNC_WEB_PORT | Optional new Compose loopback port, default 8000 |
+| NETBOX_SYNC_WEB_DIST | Optional new API static-build directory; preset in Web image |
+| NETBOX_SYNC_WEB_PORT | Optional new Compose loopback port, default 8000 |
 
 Use a dedicated read-only PostgreSQL role with schema USAGE and SELECT access to
 schema_meta and the queried sources columns. Do not grant migration/registry
@@ -340,7 +340,7 @@ write permissions. The API does not need source or NetBox secret mounts.
 ## Optional Compose role
 
 ```sh
-docker compose -f compose.yml -f compose.web.yml --profile web up -d --build infra-sync-api
+docker compose -f compose.yml -f compose.web.yml --profile web up -d --build netbox-sync-api
 ```
 
 Use the same existing Compose project name/configuration. Legacy compose.yml
@@ -366,7 +366,7 @@ the host database. Never run migrations as part of API startup.
 
 ```sh
 pytest -q
-pylint --fail-under=9.0 --max-line-length=120 netbox_pve_sync
+pylint --fail-under=9.0 --max-line-length=120 netbox_sync
 git diff --check
 python -m build --wheel
 ```
@@ -432,13 +432,13 @@ There is no pagination yet; intended for the existing small registry.
 
 ## Registry access and production viewing
 
-compose.web.yml remains unchanged: supply INFRA_SYNC_REGISTRY_DSN and
-INFRA_SYNC_REGISTRY_SCHEMA through the operator's protected environment/.env
+compose.web.yml remains unchanged: supply NETBOX_SYNC_REGISTRY_DSN and
+NETBOX_SYNC_REGISTRY_SCHEMA through the operator's protected environment/.env
 configuration. Never commit or print a populated DSN. No DSN-file loader or new
 secret mount is introduced. The DSN is visible to Docker administrators through
 container configuration; protect host access accordingly.
 
-Use a dedicated PostgreSQL login with CONNECT on the Infra Sync database, USAGE
+Use a dedicated PostgreSQL login with CONNECT on the NetBox Sync database, USAGE
 on the application schema, SELECT(key,value) on schema_meta, and column-level
 SELECT on sources for the 15 projection columns plus id (WEB-1 health currently
 reads id in a LIMIT 0 projection). Grant no table-wide source SELECT if credential
@@ -452,11 +452,11 @@ publish PostgreSQL to the Internet. A supplied DSN is shared by health and sourc
 visibility. Existing unbaselined registry v1 works without migration.
 
 The reported production binding is 127.0.0.1:8001 -> container:8000. The checked-in
-Compose default remains 8000; use INFRA_SYNC_WEB_PORT=8001 for that deployment.
+Compose default remains 8000; use NETBOX_SYNC_WEB_PORT=8001 for that deployment.
 View it through an SSH tunnel, replacing the example user/host:
 
 ```sh
-ssh -N -L 18001:127.0.0.1:8001 operator@infra-sync-server
+ssh -N -L 18001:127.0.0.1:8001 operator@netbox-sync-server
 ```
 
 Open http://127.0.0.1:18001 and select Sources. Locally, run the API and Vite as
@@ -476,8 +476,8 @@ npm run build
 
 Node's built-in test runner tests source response validation and client errors;
 no frontend test framework dependency was added. PostgreSQL tests require
-INFRA_SYNC_TEST_POSTGRES_DSN explicitly targeting database `infra_sync_test`.
-They create a unique infra_sync_test_* schema, initialize fixture data only in
+NETBOX_SYNC_TEST_POSTGRES_DSN explicitly targeting database `netbox_sync_test`.
+They create a unique netbox_sync_test_* schema, initialize fixture data only in
 that disposable database, and drop that exact schema during cleanup. Never point
 the test variable at production. Ordinary tests skip PostgreSQL when unset.
 
@@ -486,33 +486,33 @@ integration coverage before adding write operations. Keep source CRUD, secret
 writes, execution and scheduler cutover under separate explicit approval.
 # WEB-4 read-only discovery worker
 
-The API controls discovery only through `/run/infra-sync-discovery/worker.sock`; it has no
+The API controls discovery only through `/run/netbox-sync-discovery/worker.sock`; it has no
 source-secret or NetBox-token mount. The root supervisor reads the minimum read-only mounts,
 then launches provider and NetBox reads as UID/GID 10001 with a restricted environment and a
 120-second deadline. The worker publishes no port and joins only `netbox_default` for outbound
 provider and NetBox access. Results are ephemeral.
 
-The API retains its already-reviewed WEB-3 `INFRA_SYNC_REGISTRATION_DSN` as an explicit exception.
+The API retains its already-reviewed WEB-3 `NETBOX_SYNC_REGISTRATION_DSN` as an explicit exception.
 That role remains registration-only; it is not supplied to the discovery worker and is removed from
 the discovery child's environment. Neither API nor discovery receives registry sync/apply authority.
 
-For production database `infra_sync`, create the distinct reader role and grant only:
+For production database `netbox_sync`, create the distinct reader role and grant only:
 
 ```sql
-CREATE ROLE infra_sync_discovery_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
-ALTER ROLE infra_sync_discovery_reader SET default_transaction_read_only = on;
-REVOKE ALL ON DATABASE infra_sync FROM infra_sync_discovery_reader;
-GRANT CONNECT ON DATABASE infra_sync TO infra_sync_discovery_reader;
-REVOKE ALL ON SCHEMA infra_sync FROM infra_sync_discovery_reader;
-GRANT USAGE ON SCHEMA infra_sync TO infra_sync_discovery_reader;
-REVOKE ALL ON ALL TABLES IN SCHEMA infra_sync FROM infra_sync_discovery_reader;
-GRANT SELECT (key, value) ON infra_sync.schema_meta TO infra_sync_discovery_reader;
-GRANT SELECT ON infra_sync.sources TO infra_sync_discovery_reader;
+CREATE ROLE netbox_sync_discovery_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
+ALTER ROLE netbox_sync_discovery_reader SET default_transaction_read_only = on;
+REVOKE ALL ON DATABASE netbox_sync FROM netbox_sync_discovery_reader;
+GRANT CONNECT ON DATABASE netbox_sync TO netbox_sync_discovery_reader;
+REVOKE ALL ON SCHEMA netbox_sync FROM netbox_sync_discovery_reader;
+GRANT USAGE ON SCHEMA netbox_sync TO netbox_sync_discovery_reader;
+REVOKE ALL ON ALL TABLES IN SCHEMA netbox_sync FROM netbox_sync_discovery_reader;
+GRANT SELECT (key, value) ON netbox_sync.schema_meta TO netbox_sync_discovery_reader;
+GRANT SELECT ON netbox_sync.sources TO netbox_sync_discovery_reader;
 ```
 
-Configure `INFRA_SYNC_DISCOVERY_REGISTRY_DSN` with that role. Do not reuse the Web registration
-or sync runtime role. Configure `INFRA_SYNC_DISCOVERY_NB_API_URL` and mount a separate NetBox API
-token at the host path in `INFRA_SYNC_DISCOVERY_NB_TOKEN_FILE`. Its NetBox role needs view-only
+Configure `NETBOX_SYNC_DISCOVERY_REGISTRY_DSN` with that role. Do not reuse the Web registration
+or sync runtime role. Configure `NETBOX_SYNC_DISCOVERY_NB_API_URL` and mount a separate NetBox API
+token at the host path in `NETBOX_SYNC_DISCOVERY_NB_TOKEN_FILE`. Its NetBox role needs view-only
 permissions for DCIM devices, interfaces, sites, roles, platforms, device types, IPAM IP addresses,
 prefixes and VLANs, and virtualization clusters, cluster types, VMs and VM interfaces. It must have
 no add/change/delete permissions.
@@ -530,10 +530,10 @@ The worker accepts only `prepare` and `apply` operations for one validated `sour
 The worker registry role is read-only:
 
 ```sql
-GRANT CONNECT ON DATABASE infra_sync TO infra_sync_apply_registry_reader;
-GRANT USAGE ON SCHEMA infra_sync TO infra_sync_apply_registry_reader;
-GRANT SELECT ON TABLE infra_sync.schema_meta, infra_sync.sources
-TO infra_sync_apply_registry_reader;
+GRANT CONNECT ON DATABASE netbox_sync TO netbox_sync_apply_registry_reader;
+GRANT USAGE ON SCHEMA netbox_sync TO netbox_sync_apply_registry_reader;
+GRANT SELECT ON TABLE netbox_sync.schema_meta, netbox_sync.sources
+TO netbox_sync_apply_registry_reader;
 ```
 
 Do not grant this role `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, sequence access, DDL, or schema
@@ -546,9 +546,9 @@ MAC Address and IP Address. Do not grant `delete` on any model. Validate the pre
 permission codenames against the deployed NetBox version before enabling the worker.
 
 The canonical systemd unit calls the tracked
-`/opt/infra-sync/current/scripts/run-scheduled-sync.sh`. That wrapper owns the only scheduled
-flock and contends with the manual worker on `/run/infra-sync/apply.lock`. Only
-`/run/infra-sync` is mounted into the worker; broad `/run`, Docker socket, and secret-broker
+`/opt/netbox-sync/current/scripts/run-scheduled-sync.sh`. That wrapper owns the only scheduled
+flock and contends with the manual worker on `/run/netbox-sync/apply.lock`. Only
+`/run/netbox-sync` is mounted into the worker; broad `/run`, Docker socket, and secret-broker
 socket mounts are forbidden. Historical host-managed wrappers must be disabled during cutover.
 
 An enabled source remains manually eligible when `sync_enabled=false`; this flag continues to
@@ -561,7 +561,7 @@ scheduled registry-all apply. It does not add a scheduler, retry, rollback, raw-
 viewer or full-plan archive. Every selected scheduled source has a separate record;
 one source cannot overwrite another source's outcome.
 
-`infra_sync.sync_runs` stores a UUID run ID, historical source instance/type,
+`netbox_sync.sync_runs` stores a UUID run ID, historical source instance/type,
 manual or scheduled trigger, UTC lifecycle timestamps, duration, closed status,
 canonical plan digest/version, eight action totals, an allowlisted error code and
 safe message, and `created_by`. It has no foreign key to `sources`, so source
@@ -589,7 +589,7 @@ is deferred rather than guessing the NetBox outcome.
 An abrupt process or database failure can leave `RUNNING` visible. WEB-6 does not
 guess success or retry it. Operator diagnostics/recovery for abandoned records is
 deferred. Both write-capable runtime boundaries fail closed at startup when
-`INFRA_SYNC_RUN_WRITER_DSN` is absent; the API and discovery child never receive it.
+`NETBOX_SYNC_RUN_WRITER_DSN` is absent; the API and discovery child never receive it.
 
 Read-only endpoints are:
 
@@ -611,22 +611,22 @@ The following is a grant template; substitute operator-selected role names and
 manage passwords outside source control. Execute it only after the migration:
 
 ```sql
-CREATE ROLE infra_sync_run_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
-ALTER ROLE infra_sync_run_writer SET default_transaction_read_only = off;
-REVOKE ALL ON DATABASE infra_sync FROM infra_sync_run_writer;
-GRANT CONNECT ON DATABASE infra_sync TO infra_sync_run_writer;
-REVOKE ALL ON SCHEMA infra_sync FROM infra_sync_run_writer;
-GRANT USAGE ON SCHEMA infra_sync TO infra_sync_run_writer;
-REVOKE ALL ON ALL TABLES IN SCHEMA infra_sync FROM infra_sync_run_writer;
-GRANT SELECT ON infra_sync.sync_runs TO infra_sync_run_writer;
+CREATE ROLE netbox_sync_run_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
+ALTER ROLE netbox_sync_run_writer SET default_transaction_read_only = off;
+REVOKE ALL ON DATABASE netbox_sync FROM netbox_sync_run_writer;
+GRANT CONNECT ON DATABASE netbox_sync TO netbox_sync_run_writer;
+REVOKE ALL ON SCHEMA netbox_sync FROM netbox_sync_run_writer;
+GRANT USAGE ON SCHEMA netbox_sync TO netbox_sync_run_writer;
+REVOKE ALL ON ALL TABLES IN SCHEMA netbox_sync FROM netbox_sync_run_writer;
+GRANT SELECT ON netbox_sync.sync_runs TO netbox_sync_run_writer;
 GRANT INSERT (run_id, source_instance, source_type, trigger, started_at, status,
               plan_digest, planner_version, created_by)
-ON infra_sync.sync_runs TO infra_sync_run_writer;
+ON netbox_sync.sync_runs TO netbox_sync_run_writer;
 GRANT UPDATE (finished_at, duration_ms, status, plan_digest, planner_version,
               create_count, update_count, no_change_count, review_required_count,
               blocked_count, ignored_count, unsupported_count, retain_only_count,
               error_code, error_message_safe)
-ON infra_sync.sync_runs TO infra_sync_run_writer;
+ON netbox_sync.sync_runs TO netbox_sync_run_writer;
 ```
 
 Do not grant this role `DELETE`, `TRUNCATE`, DDL, schema ownership, sequence
@@ -635,11 +635,11 @@ generated by the application, so no sequence permission is needed. Grant the
 existing Web/API reader only:
 
 ```sql
-GRANT SELECT ON infra_sync.sync_runs TO infra_sync_web_reader;
+GRANT SELECT ON netbox_sync.sync_runs TO netbox_sync_web_reader;
 ```
 
 The API continues using its reader DSN. Supply the separate protected
-`INFRA_SYNC_RUN_WRITER_DSN` to the apply-worker container and to the host-managed
+`NETBOX_SYNC_RUN_WRITER_DSN` to the apply-worker container and to the host-managed
 scheduled registry-all environment only. It is intentionally absent from the API,
 discovery worker/child and secret broker. No Compose service receives Docker or
 systemd control as part of WEB-6.
@@ -654,7 +654,7 @@ Do not run these steps automatically or against production without approval:
    the protected migration-owner DSN. Confirm revision `0002_sync_run_history`.
 3. Create/review the narrow run-writer role and add `SELECT` on `sync_runs` to the
    Web reader. Store new DSNs in the operator-managed secret/environment facility.
-4. Add `INFRA_SYNC_RUN_WRITER_DSN` independently to the apply-worker and scheduled
+4. Add `NETBOX_SYNC_RUN_WRITER_DSN` independently to the apply-worker and scheduled
    registry-all environments. Do not add it to API or discovery.
 5. Rebuild/recreate the Web API/apply worker as required. Do not redesign or
    replace the current systemd timer/wrapper.
@@ -684,7 +684,7 @@ the systemd timer is loaded or active. An enabled/sync-enabled source becomes de
 when its latest scheduled attempt is older than twice its configured interval, with a
 minimum 30-minute threshold. No scheduled history is `UNKNOWN`, not a false failure.
 
-RUNNING records older than `INFRA_SYNC_DIAGNOSTICS_STALE_SECONDS` are reported as
+RUNNING records older than `NETBOX_SYNC_DIAGNOSTICS_STALE_SECONDS` are reported as
 `STALE_RUNNING`; the default is 7200 seconds and accepted bounds are 300 through
 604800 seconds. At most 100 stale records are returned. Detection is SELECT-only:
 WEB-7 never updates, deletes, finalizes, retries, or clears an abandoned run.
@@ -708,7 +708,7 @@ or host write access for diagnostics.
 # WEB-8 per-source scheduling
 
 The tracked base timer now contains the final fixed 60-second tick; a clean install needs no
-drop-in. The tracked wrapper invokes registry-all under `/run/infra-sync/apply.lock`; systemd
+drop-in. The tracked wrapper invokes registry-all under `/run/netbox-sync/apply.lock`; systemd
 does not calculate individual source schedules. Existing installations must remove/reconcile
 historical timer drop-ins during a reviewed cutover, never during an ordinary application update.
 
@@ -735,21 +735,21 @@ Unix socket, never the writer DSN.
 Create a dedicated role using reviewed identifiers for the real database/schema:
 
 ```sql
-CREATE ROLE infra_sync_schedule_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
-REVOKE ALL ON DATABASE infra_sync FROM infra_sync_schedule_writer;
-GRANT CONNECT ON DATABASE infra_sync TO infra_sync_schedule_writer;
-REVOKE ALL ON SCHEMA infra_sync FROM infra_sync_schedule_writer;
-GRANT USAGE ON SCHEMA infra_sync TO infra_sync_schedule_writer;
-REVOKE ALL ON ALL TABLES IN SCHEMA infra_sync FROM infra_sync_schedule_writer;
+CREATE ROLE netbox_sync_schedule_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION;
+REVOKE ALL ON DATABASE netbox_sync FROM netbox_sync_schedule_writer;
+GRANT CONNECT ON DATABASE netbox_sync TO netbox_sync_schedule_writer;
+REVOKE ALL ON SCHEMA netbox_sync FROM netbox_sync_schedule_writer;
+GRANT USAGE ON SCHEMA netbox_sync TO netbox_sync_schedule_writer;
+REVOKE ALL ON ALL TABLES IN SCHEMA netbox_sync FROM netbox_sync_schedule_writer;
 GRANT SELECT (source_instance, sync_enabled, sync_interval_seconds)
-  ON infra_sync.sources TO infra_sync_schedule_writer;
+  ON netbox_sync.sources TO netbox_sync_schedule_writer;
 GRANT UPDATE (sync_enabled, sync_interval_seconds)
-  ON infra_sync.sources TO infra_sync_schedule_writer;
+  ON netbox_sync.sources TO netbox_sync_schedule_writer;
 ```
 
 Do not grant INSERT, DELETE, TRUNCATE, DDL, `enabled`/identity/credential updates,
 `schema_meta` writes, or `sync_runs` writes. Supply its DSN only as
-`INFRA_SYNC_SCHEDULE_WRITER_DSN` to `infra-sync-schedule-worker`.
+`NETBOX_SYNC_SCHEDULE_WRITER_DSN` to `netbox-sync-schedule-worker`.
 
 Production rollout order: back up registry configuration; create/grant the narrow role;
 install its secret environment; deploy the schedule worker socket and rebuild API/worker;
@@ -786,7 +786,7 @@ change is requested. It is a checklist, not an automated production test:
 9. Onboard a second ESXi or Proxmox source with its own address, username, secret
    reference, target Site/Cluster, interval, and TLS setting. Confirm neither source
    can match or update the other's objects.
-10. Hold `/run/infra-sync/apply.lock` and verify manual/scheduled contention fails
+10. Hold `/run/netbox-sync/apply.lock` and verify manual/scheduled contention fails
     safely, then verify Runs and Diagnostics stay source-scoped.
 11. Restart/reboot the reviewed stack and repeat discovery, plan, history, diagnostics,
     schedule, credential-resolution, and shared-lock smoke checks.
@@ -820,7 +820,7 @@ production VM/LXC mutation or deletion:
    resolves only its own secrets and cannot match the other's objects.
 10. Verify missing VLAN/Prefix, foreign/duplicate MAC/IP, and foreign/manual primary
     cases fail closed or preserve only a proven same-VM primary.
-11. Hold `/run/infra-sync/apply.lock`; manual and scheduled apply must contend on the
+11. Hold `/run/netbox-sync/apply.lock`; manual and scheduled apply must contend on the
     same inode without provider-specific locking or automatic retry.
 12. Verify Runs and Diagnostics, then restart/reboot and repeat discovery, planning,
     schedule, history, credentials, and shared-lock checks.
@@ -830,7 +830,7 @@ plan. Final cross-provider live Multi-Source Validation remains a later stage.
 
 ### Multi-source live validation (operator runbook)
 
-This checklist is read-only except for separately confirmed Infra Sync operations. Never
+This checklist is read-only except for separately confirmed NetBox Sync operations. Never
 rename, hide, create, or remove a production workload merely to exercise a test:
 
 1. Confirm `pve-infra-test` and `esxi-infra-test` appear independently with intervals 300
@@ -846,7 +846,7 @@ rename, hide, create, or remove a production workload merely to exercise a test:
 5. Disable one source's automatic sync. It must create no scheduled attempts while the
    other continues; manual Discovery/Plan/Sync remains available. Re-enable it and verify
    at most one overdue attempt on the next tick.
-6. Hold `/run/infra-sync/apply.lock`. Scheduled/manual contention in either direction must
+6. Hold `/run/netbox-sync/apply.lock`. Scheduled/manual contention in either direction must
    fail closed with no partial writes. Reuse the already validated WEB-8 procedure.
 7. Use only naturally duplicated names or disposable test VMs to verify that identical
    display names remain unchanged while identity/source history remains distinct.

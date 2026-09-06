@@ -1,4 +1,4 @@
-# Infra Sync architecture
+# NetBox Sync architecture
 
 Status: the opt-in Web stack provides health, diagnostics, source visibility,
 discovery, confirmed manual synchronization and durable run history. The existing systemd
@@ -7,7 +7,7 @@ registry-all scheduler remains the automatic execution authority. See
 
 ## Current state, verified from code
 
-- `nbpxsync = netbox_pve_sync:main` is the installed entrypoint.
+- `netbox-sync = netbox_sync:main` is the installed entrypoint.
 - `source_bootstrap` selects legacy, registry or registry-all configuration.
   Registry-all reads `enabled AND sync_enabled`, ordered by source ID. It rejects
   multiple legacy identity owners. It does not enforce per-source intervals.
@@ -28,11 +28,11 @@ registry-all scheduler remains the automatic execution authority. See
   unique source_instance, reference-only credentials and optimistic updates.
   `initialize()` creates `schema_meta` and `sources`, with schema_version=1.
 - `FileSecretResolver` supports env and logical file names beneath
-  `/run/secrets/infra-sync`. LegacyFileSecretResolver supports old absolute
+  `/run/secrets/netbox-sync`. LegacyFileSecretResolver supports old absolute
   paths. NetBox credentials still use the existing bootstrap environment/file
   reader. No new secret provider is activated.
 - `scripts/run-scheduled-sync.sh` is the tracked registry-all wrapper. It owns the
-  sole scheduled flock on `/run/infra-sync/apply.lock`; the manual apply worker
+  sole scheduled flock on `/run/netbox-sync/apply.lock`; the manual apply worker
   contends on the same host inode.
 - `compose.production.yml` is the clean-install topology: one application image,
   bundled private PostgreSQL, an internal DB network, ordinary provider/NetBox HTTPS
@@ -45,7 +45,7 @@ registry-all scheduler remains the automatic execution authority. See
 ## Lowest-risk layout
 
 ```text
-netbox_pve_sync/                 existing runtime, domain, adapters: unchanged
+netbox_sync/                 existing runtime, domain, adapters: unchanged
   application/                  new, opt-in transport-neutral contracts
 docs/                           architecture, migration and development guides
 migrations/                     Alembic environment and immutable revisions
@@ -58,7 +58,7 @@ alembic.ini                     migration paths, never credentials
 requirements-migrations.txt     migration dependencies included in canonical image
 ```
 
-WEB-1 adds `netbox_pve_sync/api/` (FastAPI) and `frontend/` (React/TypeScript,
+WEB-1 adds `netbox_sync/api/` (FastAPI) and `frontend/` (React/TypeScript,
 Vite). No top-level backend package is needed: API, application and worker code
 can share the existing distributable Python package. Do not move stable modules
 for cosmetic layering. Migration dependencies are installed in the canonical image
@@ -125,7 +125,7 @@ WEB-8 derives scheduling from the latest scheduled `started_at`; manual runs nev
 cadence. A source with no scheduled history is due immediately. A missed interval creates
 at most one attempt on the next tick, never a backlog. A recent scheduled RUNNING record
 prevents overlap; a record older than the shared WEB-7 stale threshold remains untouched
-but no longer blocks a new due attempt. The host-level `/run/infra-sync/apply.lock` remains
+but no longer blocks a new due attempt. The host-level `/run/netbox-sync/apply.lock` remains
 the final serialization boundary.
 
 Registry-row conversion and schedule evaluation are isolated per source. An invalid row or
@@ -166,7 +166,7 @@ loopback/private trusted access only; write APIs require a separate security rev
 
 ## Database ownership
 
-Infra Sync owns its configured application schema, not NetBox's database. Keep
+NetBox Sync owns its configured application schema, not NetBox's database. Keep
 the current schema and rows in place. Alembic baseline validates legacy v1 before
 recording its revision; clean installs create the same tables. No schema rename,
 copy, drop or automatic startup migration. `schema_meta.schema_version=1` remains
@@ -216,8 +216,8 @@ an integration, not part of our schema or ownership.
 
 The installer starts and health-checks PostgreSQL before role bootstrap, migration,
 grants and long-running services. Application filesystems remain read-only and secret
-mounts/credentials are role-scoped. Historical `infra-netbox-sync` service/file naming
-remains for compatibility; the configurable Compose project defaults to `infra-sync`.
+mounts/credentials are role-scoped. Canonical service, file and Compose project naming
+uses `netbox-sync`; pre-rename identifiers are accepted only by transition tooling.
 Never run a historical scheduler alongside the canonical timer. Cutover requires explicit
 operator approval, rollback plan and a tested database backup/restore procedure.
 
@@ -378,7 +378,7 @@ Target resolution is repeated from each immutable SourceConfig. Site, Cluster na
 Platform, Device Role, and Device Type are never borrowed from another source. Clusters
 with the same display name remain distinct through Site and type scope. An identity found
 outside its configured target is a conflict, not a move. Same-name objects in one target
-remain unchanged and require review; Infra Sync never adds source suffixes to display names.
+remain unchanged and require review; NetBox Sync never adds source suffixes to display names.
 
 Proxmox management-IP matching is now review evidence rather than ownership. This closes
 the last historical path that could have added a second provider identity to an existing
@@ -409,7 +409,7 @@ is available without a Compose edit, wrapper edit, per-source mount, or service 
 Registry/source reads are also per request/tick rather than cached. Web-created sources start
 enabled with automatic sync disabled and legacy identity ownership disabled.
 
-The global `/run/infra-sync/apply.lock` remains the final writer barrier for every provider
+The global `/run/netbox-sync/apply.lock` remains the final writer barrier for every provider
 and trigger. Manual and scheduled execution do not have provider-specific locks. Sources are
 processed sequentially: two sources are operationally inexpensive; five accumulate provider
 and guest-agent latency; ten can exceed short source intervals. Run History durations and the
@@ -426,7 +426,7 @@ acquires the same apply-lock inode, and pauses control-plane writers before coup
 xattrs. A verified bundle becomes visible through one atomic directory rename.
 
 Fresh restore is the only supported write mode. It rejects populated targets and
-unknown/newer Alembic revisions, restores as `infra_sync_owner`, migrates forward,
+unknown/newer Alembic revisions, restores as `netbox_sync_owner`, migrates forward,
 reapplies grants, rotates fixed role passwords from restored protected files, and
 publishes filesystem state from staging. Runtime health is required, while the timer
 remains stopped for explicit read-only validation. See

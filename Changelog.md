@@ -1,4 +1,4 @@
-# Infra Sync
+# NetBox Sync
 
 ## [Unreleased]
 

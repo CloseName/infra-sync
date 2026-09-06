@@ -1,108 +1,112 @@
-# Infra Sync
+# NetBox Sync
 
-Synchronize infrastructure from multiple virtualization sources, including Proxmox VE and VMware ESXi, to NetBox.
+Synchronize infrastructure from multiple virtualization sources, including Proxmox VE and VMware ESXi, to NetBox. NetBox Sync is for operators who need deterministic inventory reconciliation, explicit review boundaries, and conservative production automation.
 
-Supported Debian deployments have a versioned logical backup and fresh-restore
-workflow. See [Backup and restore](docs/backup-restore.md); bundles contain credentials
-and must be encrypted before off-host storage.
-This allows automatic tracking of Virtual Machines, disks, IP addresses/prefixes, MAC addresses, VLANs, ...
+## Features
 
-## How does it work?
+- Multi-source Proxmox VE and VMware ESXi inventory
+- Guarded discovery, canonical planning, and confirmed apply
+- Stable, source-scoped identities and idempotent reconciliation
+- Retain-only disappearance handling with no delete path
+- Web UI for onboarding, diagnostics, plans, run history, and scheduling
+- Isolated discovery, apply, schedule, and secret-broker processes
+- Per-source cadence backed by PostgreSQL run history
+- Versioned backup, verification, and fresh-restore workflow
+- Source-scoped credential references with root-protected secret storage
 
-Infra Sync discovers source inventory and reconciles it through guarded NetBox planning/apply paths.
-Disappearance is retain-only; synchronization does not delete NetBox objects.
+## Supported sources
 
-## Architecture and development
+- Proxmox VE: hosts, QEMU VMs, LXC containers, disks, interfaces, MACs, and IPs
+- VMware ESXi: standalone hosts, virtual machines, interfaces, MACs, and IPs
 
-The current registry-backed runtime and the Web/API foundation are documented in
-[Architecture](docs/architecture.md), [Development](docs/development.md), and
-[Database migrations](docs/migrations.md). The opt-in [Web stack](docs/web.md)
-includes durable manual/scheduled run history and read-only operator diagnostics; it does not
-give the API systemd control. Per-source cadence is derived from scheduled run history;
-systemd remains a fixed tick engine.
-The standalone ESXi identity, compatibility, and safe multi-source validation contract
-is documented in [Architecture](docs/architecture.md) and the
-[operator runbook](docs/web.md#esxi-production-like-multi-source-validation-operator-runbook).
-The Proxmox identity and legacy-compatibility contract is documented alongside the
-[Proxmox production-like validation runbook](docs/web.md#proxmox-production-like-validation-operator-runbook).
-The heterogeneous source isolation and readiness gate is documented in
-[Architecture](docs/architecture.md#multi-source-system-contract) and the
-[multi-source live checklist](docs/web.md#multi-source-live-validation-operator-runbook).
-For a fresh host, use the [canonical v1 deployment foundation](docs/deployment.md).
-The historical files and environment workflow below are retained only for compatibility.
+Additional providers can be added behind the same source, discovery, plan, and apply boundaries.
 
-## Canonical deployment foundation
+## How it works
 
-Bundled private PostgreSQL, the API/workers/broker, explicit migrations, generated
-role-separated configuration, and the tracked 60-second systemd scheduler are defined by
-`compose.production.yml` and `deploy/install.py`. A clean installation does not join a
-NetBox Docker network, does not bind-mount the source tree, and does not require static
-per-source secret mounts.
+```text
+Source -> Discovery -> Canonical Plan -> Guarded Apply -> NetBox
+```
+
+Discovery reads provider inventory. Planning compares it with NetBox without writing. Apply revalidates the plan and performs only confirmed, allowlisted changes.
+
+## Safety model
+
+- No object deletion
+- Retain-only disappearance policy
+- No fuzzy-name or name-only automatic adoption
+- No stealing foreign IP or MAC assignments
+- No automatic VLAN or prefix creation
+- Fail-closed ownership and conflict checks before the first write
+- Idempotent second apply
+- Source-scoped identities and disappearance isolation
+- One shared host lock for scheduled and manual apply
+
+## Architecture
+
+The Web/API process has no provider secrets or apply authority. Dedicated Unix-socket workers handle discovery, confirmed apply, and schedule changes. A root secret broker supports create-only credential onboarding without exposing a read API. PostgreSQL stores sources and run history. A fixed systemd tick invokes the sequential scheduler, while per-source cadence is evaluated from persisted scheduled runs.
+
+See [Architecture](docs/architecture.md) for the complete process and privilege model.
+
+## Quick start
+
+The supported production path is the canonical Deployment Foundation on Debian with Docker Compose and PostgreSQL 16.
 
 ```sh
 python3 deploy/install.py --check
-# After review on the target Debian host:
+# Review generated configuration and the deployment runbook first.
 sudo python3 deploy/install.py --release-id <release-id>
 ```
 
-See [Deployment](docs/deployment.md) before any rollout. The installer does not request
-provider credentials and must not be aimed at an existing production host without a
-backup and restored-copy rehearsal.
+This prepares `/opt/netbox-sync`, protected configuration and secret directories, the `netbox-sync` Compose project, and tracked `netbox-sync.service` / `netbox-sync.timer` units. It does not request provider credentials or perform an automatic migration of a legacy installation.
 
-## Legacy package/environment compatibility
+## Deployment
 
-The package remains available as `netbox-pve-sync` and the legacy single-Proxmox mode is
-kept for compatibility. It is not the canonical multi-source production deployment.
+Follow [Deployment](docs/deployment.md). Existing installations must use the explicit [Naming migration](docs/naming-migration.md) procedure; canonical runtime code reads only `NETBOX_SYNC_*` product-global variables.
+
+## Configuration
+
+Sources are registered independently with a stable `source_instance`, provider settings, NetBox target, and logical `SecretReference(provider="file", key="...")` values. Logical source secret filenames and registry references are deliberately not renamed during product migration. Web onboarding creates new source secrets through the broker and registers new sources disabled for sync by default.
+
+Provider-specific `PVE_*` variables and existing NetBox-specific `NB_*` variables remain provider/boundary contracts rather than product-global names.
+
+The historical single-Proxmox environment workflow is documented separately in [Legacy Proxmox mode](docs/legacy-proxmox-mode.md).
+
+## Backup and restore
+
+Use the supported workflow in [Backup and restore](docs/backup-restore.md). Backup bundles contain credentials and must be encrypted before off-host storage. Current tooling reads valid pre-rename v1 bundles and migrates legacy environment, schema, roles, and xattr metadata through explicit compatibility boundaries.
+
+## Development
 
 ```sh
-pip install netbox-pve-sync
+python -m pip install -e .
+python -m pip install -r requirements-dev.txt
+python -m pytest
+pylint netbox_sync tests
+
+cd frontend
+npm ci
+npm test
+npm run typecheck
+npm run build
 ```
 
-### Configuration
+PostgreSQL integration suites require explicitly configured disposable test databases; they never default to production.
 
-### On NetBox
+## Documentation
 
-You'll need to create a dedicated user (ex: infra-sync) on your NetBox instance and then create a write API
-token.
+- [Architecture](docs/architecture.md)
+- [Deployment](docs/deployment.md)
+- [Database migrations](docs/migrations.md)
+- [Backup and restore](docs/backup-restore.md)
+- [Web/API and provider runbooks](docs/web.md)
+- [Naming migration](docs/naming-migration.md)
+- [Development](docs/development.md)
 
-The following env variables will need to be set:
+## Roadmap
 
-- **NB_API_URL**: The URL to your NetBox instance. (ex: https://netbox.example.org)
-- **NB_API_TOKEN**: The token created previously. (ex: f74cb99cf552b7005fd1a616b53efba2ce0c9656)
+The v1 scope is safe Proxmox VE and VMware ESXi inventory reconciliation, source onboarding, diagnostics, scheduling, run history, and recoverable deployment operations. Future integrations should reuse the same identity, privilege-separation, planning, and confirmation contracts.
 
-You can also set the `NB_CLUSTER_ID` env variable in order to indicate the ID of the cluster that will be used in
-NetBox.
+## License
 
-You'll also need to perform a minimal configuration on NetBox:
-
-- Create the physical nodes hosting the cluster. (The name should match the one on Proxmox, so that the script can
-  correctly link the VMs to the physical host)
-- Create the cluster.
-- Add the following Custom Fields:
-
-| Name       | Object types    | Label      | Type    |
-|------------|-----------------|------------|---------|
-| autostart  | Virtual Machine | Autostart  | Boolean |
-| replicated | Virtual Machine | Replicated | Boolean |
-| ha         | Virtual Machine | Failover   | Boolean |
-| backup     | Virtual Disk    | Backup     | Boolean |
-| dns_name   | Prefix          | DNS Name   | Text    |
-
-### On the PVE API
-
-You'll need to create a dedicated user (ex: netsync) on your PVE cluster and then create an API token.
-
-The user needs to have access to the VM.Monitor, Pool.Audit, VM.Audit, Sys.Audit permissions.
-
-The following env variables will need to be set:
-
-- **PVE_API_HOST**: The DNS/IP to your PVE instance. (ex: 10.10.0.10)
-- **PVE_API_USER**: The username of the account created previously. (ex: netsync@pve)
-- **PVE_API_TOKEN**: The name of the API token created previously. (ex: test-token)
-- **PVE_API_SECRET**: The API token created previously (ex: 4d46dc0a-6363-47a2-98df-d5cdfefa33d2)
-
-### Executing the legacy script
-
-Supply the documented legacy environment through a protected process manager or secret
-facility, then run `nbpxsync`. Do not embed credentials in shell history or repository
-files.
+Licensed under the GNU General Public License v3.0. See [LICENSE.txt](LICENSE.txt).
+Original authorship and attribution remain preserved in package metadata and Git history.
