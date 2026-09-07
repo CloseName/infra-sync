@@ -658,3 +658,200 @@ code {
 .source-workspace .discovery-review {
   margin-bottom: var(--space-6);
 }
+
+/* UI-3 uses the existing surfaces and semantic colors. */
+.sync-workspace {
+  min-width: 0;
+}
+.sync-workspace > * {
+  margin-bottom: var(--space-4);
+}
+.sync-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  margin: var(--space-4) 0;
+}
+.sync-summary dd {
+  font-size: 1.3rem;
+  font-weight: 650;
+}
+.sync-summary dt {
+  max-width: 160px;
+}
+.sync-safety,
+.sync-pending {
+  background: var(--accent-soft);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+}
+.sync-attention {
+  background: var(--warning-bg);
+  border-left: 4px solid var(--warning);
+  padding: var(--space-4);
+}
+.sync-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+}
+.sync-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.sync-filters input,
+.sync-filters select {
+  max-width: 100%;
+}
+.view-options {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.view-options [aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.plan-rows {
+  display: grid;
+  gap: var(--space-2);
+}
+.source-workspace .plan-row {
+  margin-top: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.plan-row > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  cursor: pointer;
+}
+.plan-row > summary::before {
+  content: "+";
+  font-weight: bold;
+}
+.plan-row[open] > summary::before {
+  content: "-";
+}
+.plan-object {
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.plan-reason {
+  flex: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.plan-row-body {
+  padding: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.plan-blocked {
+  border-left: 4px solid var(--danger) !important;
+}
+.plan-review_required {
+  border-left: 4px solid var(--warning) !important;
+}
+.managed-diff {
+  border: 1px solid var(--border);
+}
+.diff-head,
+.diff-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr) minmax(0, 2fr);
+}
+.diff-head {
+  background: var(--neutral-bg);
+  font-weight: 600;
+}
+.diff-row + .diff-row {
+  border-top: 1px solid var(--border);
+}
+.diff-head > *,
+.diff-row > * {
+  padding: var(--space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.managed-diff pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.diff-mobile-label {
+  display: none;
+}
+.sync-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.sync-action-bar p {
+  flex: 1;
+  min-width: 200px;
+  margin: 0;
+}
+.sync-dialog {
+  width: min(700px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-6);
+  color: var(--text);
+  background: var(--surface);
+}
+.sync-dialog::backdrop {
+  background: rgb(20 35 45 / 0.5);
+}
+.sync-dialog .page-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.sync-dialog h2 {
+  margin-top: 0;
+}
+.sync-technical {
+  margin-top: var(--space-4);
+}
+@media (max-width: 800px) {
+  .plan-row > summary {
+    flex-wrap: wrap;
+  }
+  .plan-object {
+    flex-basis: 45%;
+  }
+  .plan-reason {
+    flex-basis: 100%;
+  }
+  .diff-head {
+    display: none;
+  }
+  .diff-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .diff-mobile-label {
+    display: block;
+    font-size: 0.9em;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .sync-dialog {
+    padding: var(--space-4);
+  }
+}

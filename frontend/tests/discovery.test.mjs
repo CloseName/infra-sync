@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
 import { runDiscovery } from '../src/api/discovery.ts';
 
 const result = { source_instance: 'pve-test', source_type: 'proxmox', site_slug: 'test',
@@ -25,17 +24,10 @@ test('discovery client rejects malformed result and reports stable errors', asyn
   await assert.rejects(runDiscovery('pve-test', new AbortController().signal), /Disabled/);
 });
 
-test('source detail keeps discovery review separate from explicit sync controls', () => {
-  const page = readFileSync(new URL('../src/pages/SourceSync.tsx', import.meta.url), 'utf8');
-  for (const text of ['Run discovery', 'Running read-only discovery', 'role="alert"',
-    'Classification', 'Object kind', 'reason_code', 'summary-grid']) assert.ok(page.includes(text));
-  assert.ok(page.includes('Build plan'));
-  assert.ok(page.includes('Sync Now'));
-  assert.ok(!page.includes('Apply changes'));
-  assert.ok(classificationsVisibleInClient());
+test('discovery failures distinguish provider and registry without exposing raw errors', async context => {
+  const mock = context.mock.method(globalThis,'fetch');
+  for (const [code,message] of [['PROVIDER_UNAVAILABLE','Source discovery is unavailable.'],['REGISTRY_UNAVAILABLE','Discovery registry is unavailable.']]) {
+    mock.mock.mockImplementationOnce(async()=>Response.json({error:{code,message:'RAW SECRET'}},{status:503}));
+    await assert.rejects(runDiscovery('pve-test',new AbortController().signal),error=>error.message===message);
+  }
 });
-
-function classificationsVisibleInClient() {
-  const client = readFileSync(new URL('../src/api/discovery.ts', import.meta.url), 'utf8');
-  return client.includes("'IGNORED'") && client.includes("'UNSUPPORTED'");
-}

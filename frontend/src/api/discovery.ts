@@ -20,7 +20,16 @@ export async function runDiscovery(instance: string, signal: AbortSignal): Promi
   if (!response.ok) {
     let code = '';
     try { const value: unknown = await response.json(); code = record(value) && record(value.error) && typeof value.error.code === 'string' ? value.error.code : ''; } catch { /* safe fallback */ }
-    throw new Error(code === 'SOURCE_DISABLED' ? 'Disabled sources cannot be discovered.' : code === 'DISCOVERY_TIMEOUT' ? 'Discovery timed out.' : 'Discovery failed. No changes were made.');
+    const messages: Record<string,string> = {
+      SOURCE_DISABLED: 'Disabled sources cannot be discovered.',
+      SOURCE_NOT_FOUND: 'Source not found.', DISCOVERY_TIMEOUT: 'Discovery timed out.',
+      PROVIDER_UNAVAILABLE: 'Source discovery is unavailable.',
+      REGISTRY_UNAVAILABLE: 'Discovery registry is unavailable.',
+      NETBOX_UNAVAILABLE: 'NetBox comparison is unavailable.',
+      CREDENTIAL_UNAVAILABLE: 'Source-scoped discovery credentials are unavailable.',
+      DISCOVERY_UNAVAILABLE: 'Discovery worker is unavailable.',
+    };
+    throw new Error(Object.hasOwn(messages, code) ? messages[code] : 'Discovery failed. No changes were made.');
   }
   let value: unknown;
   try { value = await response.json(); } catch { throw new Error('Discovery returned malformed data.'); }

@@ -333,7 +333,7 @@ export function SourcesPage() {
           )}
           {/* Keep local operations and edits mounted across tabs; the route wrapper remounts by source identity. */}
           <div hidden={tab !== "Sync"}>
-            <SourceSync detail={detail} />
+            <SourceSync detail={detail} active={tab === "Sync"} />
           </div>
           <div hidden={tab !== "Schedule"}>
             <SourceSchedule

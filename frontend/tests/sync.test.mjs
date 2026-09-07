@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { applySync, buildSyncPlan, prepareSync, resultForSource } from '../src/api/sync.ts';
+import { applySync, buildSyncPlan, prepareSync } from '../src/api/sync.ts';
 
 const plan = { source_instance: 'pve-test', source_type: 'proxmox',
   source_fingerprint: 'a', target_fingerprint: 'b', provider_fingerprint: 'c', netbox_fingerprint: 'd',
@@ -37,9 +36,9 @@ test('confirmation and apply clients reject malformed worker capabilities', asyn
 
 test('manual sync maps stable API errors to safe operator-visible messages', async (context) => {
   const cases = [
-    [409, 'APPLY_LOCKED', 'Manual sync could not start: another sync is already running. No changes were made.'],
-    [409, 'PLAN_STALE', 'The sync plan is no longer current. Build a new plan before syncing.'],
-    [503, 'OUTCOME_UNCERTAIN', 'Manual sync stopped after the write phase began. The final NetBox state may be uncertain; review the source before retrying.'],
+    [409, 'APPLY_LOCKED', 'Sync did not start because another sync operation is active.'],
+    [409, 'PLAN_STALE', 'Source or NetBox state changed. Build a new plan before syncing.'],
+    [503, 'OUTCOME_UNCERTAIN', 'Final outcome could not be confirmed. Do not retry automatically.'],
   ];
   const mock = context.mock.method(globalThis, 'fetch');
   for (const [status, code, message] of cases) {
@@ -53,30 +52,11 @@ test('manual sync success remains explicit and unknown failures are generic', as
   const mock = context.mock.method(globalThis, 'fetch', async () => Response.json({
     status: 'SUCCEEDED', plan_digest: plan.digest,
   }));
-  assert.equal(await applySync('pve-test', 'b'.repeat(64),
-    new AbortController().signal), 'SUCCEEDED: Manual sync completed successfully.');
+  assert.deepEqual(await applySync('pve-test', 'b'.repeat(64),
+    new AbortController().signal), { status: 'SUCCEEDED', plan_digest: plan.digest });
   mock.mock.mockImplementation(async () => Response.json({
     error: { code: 'UNRECOGNIZED', message: 'raw internal detail https://secret.invalid' },
   }, { status: 500 }));
   await assert.rejects(applySync('pve-test', 'b'.repeat(64),
     new AbortController().signal), /Manual sync request failed\. No automatic retry was performed\./);
-});
-
-test('sync result remains rendered after busy state releases the button', () => {
-  const page = readFileSync(new URL('../src/pages/SourceSync.tsx', import.meta.url), 'utf8');
-  assert.ok(page.includes("setSyncResult({ sourceInstance: selected, kind: 'error'"));
-  assert.ok(page.includes("setSyncResult({ sourceInstance: selected, kind: 'success'"));
-  assert.ok(page.includes('finally { setSyncing(false); }'));
-  assert.ok(page.includes("role={visibleSyncResult.kind === 'error' ? 'alert' : 'status'}"));
-  assert.ok(!page.includes('finally { setSyncResult(null)'));
-});
-
-test('manual sync outcomes are visible only for their source instance', () => {
-  const lockedA = { sourceInstance: 'source-a', kind: 'error',
-    message: 'Manual sync could not start: another sync is already running. No changes were made.' };
-  const successB = { sourceInstance: 'source-b', kind: 'success', message: 'SUCCEEDED' };
-  assert.equal(resultForSource(lockedA, 'source-a'), lockedA);
-  assert.equal(resultForSource(lockedA, 'source-b'), null);
-  assert.equal(resultForSource(successB, 'source-a'), null);
-  assert.equal(resultForSource(successB, 'source-b'), successB);
 });

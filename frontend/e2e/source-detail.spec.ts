@@ -361,7 +361,7 @@ test("discovery persists across tabs", async ({ page }) => {
   await page
     .getByRole("button", { name: "Run discovery", exact: true })
     .click();
-  await expect(page.getByText("Running read-only discovery…")).toBeVisible();
+  await expect(page.getByText(/Discovering source/)).toBeVisible();
   await section(page, "Overview").click();
   await expect(section(page, "Overview")).toHaveAttribute(
     "aria-current",
@@ -510,7 +510,7 @@ test("Build plan needs no discovery, retains result and confirmation semantics a
   );
   await page.goto("/sources/source-1/sync");
   await page.getByRole("button", { name: "Build plan", exact: true }).click();
-  await expect(page.getByText("Plan digest:")).toBeVisible();
+  await expect(page.getByText("Plan ready for review.")).toBeVisible();
   await section(page, "Overview").click();
   await expect(section(page, "Overview")).toHaveAttribute(
     "aria-current",
@@ -518,17 +518,12 @@ test("Build plan needs no discovery, retains result and confirmation semantics a
   );
   await section(page, "Sync").click();
   await expect(
-    page.getByRole("button", { name: "Sync Now", exact: true }),
+    page.getByRole("button", { name: "Review and confirm sync", exact: true }),
   ).toBeEnabled();
-  page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toBe(
-      "Apply the exact reviewed plan for source-1?",
-    );
-    await dialog.accept();
-  });
-  await page.getByRole("button", { name: "Sync Now", exact: true }).click();
+  await page.getByRole("button", { name: "Review and confirm sync", exact: true }).click();
+  await page.getByRole("button", { name: "Sync to NetBox", exact: true }).click();
   await expect(
-    page.getByText("SUCCEEDED: Manual sync completed successfully."),
+    page.getByRole("heading", { name: "Sync completed", exact: true }),
   ).toBeVisible();
   await section(page, "Schedule").click();
   await expect(section(page, "Schedule")).toHaveAttribute(
@@ -537,7 +532,7 @@ test("Build plan needs no discovery, retains result and confirmation semantics a
   );
   await section(page, "Sync").click();
   await expect(
-    page.getByText("SUCCEEDED: Manual sync completed successfully."),
+    page.getByRole("heading", { name: "Sync completed", exact: true }),
   ).toBeVisible();
 });
 test("late plan for A cannot appear on B", async ({ page }) => {
@@ -565,7 +560,7 @@ test("late plan for A cannot appear on B", async ({ page }) => {
   });
   await page.goto("/sources/source-1/sync");
   await page.getByRole("button", { name: "Build plan", exact: true }).click();
-  await expect(page.getByText(/Checking the current plan/)).toBeVisible();
+  await expect(page.getByText(/Building read-only plan/)).toBeVisible();
   await page.getByRole("link", { name: "Back to sources" }).click();
   await page.getByRole("link", { name: "Source 002", exact: true }).click();
   await section(page, "Sync").click();
@@ -574,9 +569,9 @@ test("late plan for A cannot appear on B", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Sync", exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("Plan digest:")).toHaveCount(0);
+  await expect(page.getByText("Plan ready for review.")).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Sync Now", exact: true }),
+    page.getByRole("button", { name: "Review and confirm sync", exact: true }),
   ).toHaveCount(0);
 });
 
