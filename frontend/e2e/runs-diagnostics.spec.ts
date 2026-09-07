@@ -96,7 +96,7 @@ for (const [status, label] of Object.entries(labels))
         "Counts describe recorded plan actions, not confirmed applied objects.",
       ),
     ).toBeVisible();
-    await page.getByText("Technical evidence", { exact: true }).click();
+    await page.getByText("Technical details", { exact: true }).click();
     await expect(page.getByText(runId, { exact: true }).last()).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Open source diagnostics" }),
@@ -267,7 +267,7 @@ test("diagnostic healthy checks disclose actual evidence; unknown is never avail
   await expect(page.locator("#component-apply_worker")).toContainText(
     "connectivity are not tested",
   );
-  await component.getByText("Technical evidence", { exact: true }).focus();
+  await component.getByText("Technical details", { exact: true }).focus();
   await page.keyboard.press("Enter");
   await expect(component.getByText("Recorded status")).toBeVisible();
   await expect(
@@ -374,7 +374,7 @@ test("refresh failures retain old diagnostics and explicitly mark data freshness
   fixture.fail();
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText(
-    "Could not refresh. Showing data from",
+    "Could not refresh diagnostics. Showing data from",
   );
   await expect(page.getByRole("alert").locator("time")).toHaveAttribute(
     "datetime",
@@ -559,7 +559,7 @@ test("runs refresh failure retains rows and source filters track browser history
   );
   await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText(
-    "Could not refresh. Showing data from",
+    "Could not refresh history. Showing data from",
   );
   await expect(page.locator(".run-table")).toBeVisible();
   await page

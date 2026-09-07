@@ -16,6 +16,7 @@ import { healthStatus, runStatus } from "../ui/status";
 import { interval } from "../ui/format";
 import { composeSources, querySources } from "../ui/operations";
 import { sourcePath, runPath } from "../ui/routes";
+import { staleEvidence } from "../ui/runEvidence";
 export function SourcesListPage() {
   const sources = useResource(fetchSources),
     diagnostics = useResource(fetchDiagnostics);
@@ -204,11 +205,11 @@ export function SourcesListPage() {
                                 <Badge
                                   value={runStatus(
                                     d.latest_run.status,
-                                    d.warnings.includes("STALE_RUNNING") &&
-                                      diagnostics.data?.stale_runs.some(
-                                        (w) =>
-                                          w.run_id === d.latest_run?.run_id,
-                                      ),
+                                    !!staleEvidence(
+                                      d.latest_run,
+                                      s.source_instance,
+                                      diagnostics.data,
+                                    ),
                                   )}
                                 />
                               </Link>

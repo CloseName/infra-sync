@@ -14,6 +14,8 @@ import { RunsPage } from "./pages/RunsPage";
 import { DiagnosticsPage } from "./pages/DiagnosticsPage";
 import { AddSourcePage } from "./pages/AddSourcePage";
 import { breadcrumbs, navigation } from "./ui/routes";
+import { ThemeControl } from "./ui/ThemeControl";
+import { NavIcon } from "./ui/NavIcon";
 function SourceRoute() {
   const { sourceInstance } = useParams();
   return <SourcesPage key={sourceInstance} />;
@@ -25,6 +27,7 @@ function RunRoute() {
 export function App() {
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const navToggle = useRef<HTMLButtonElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const crumbs = breadcrumbs(location.pathname);
   const sourceDetail = /^\/sources\/(?!add(?:\/|$))[^/]+/.test(
@@ -46,7 +49,9 @@ export function App() {
           NetBox <strong>Sync</strong>
         </Link>
         <span className="muted">Source synchronization</span>
+        <ThemeControl />
         <button
+          ref={navToggle}
           className="nav-toggle"
           aria-expanded={open}
           aria-controls="primary-nav"
@@ -60,9 +65,17 @@ export function App() {
           id="primary-nav"
           aria-label="Main navigation"
           className={`sidebar ${open ? "is-open" : ""}`}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && open) {
+              setOpen(false);
+              navToggle.current?.focus();
+            }
+          }}
         >
+          <p className="nav-section">Operations</p>
           {navigation.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.to === "/"}>
+              <NavIcon path={item.to} />
               {item.label}
             </NavLink>
           ))}

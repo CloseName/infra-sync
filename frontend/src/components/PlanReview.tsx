@@ -63,22 +63,22 @@ export function PlanReview({
             label: previous
               ? "Previous plan — build a new plan"
               : plan.apply_allowed
-                ? "Apply allowed by backend"
-                : "Apply blocked by backend",
+                ? "Plan permits sync"
+                : "Blocked by safety checks",
             tone: previous ? "neutral" : plan.apply_allowed ? "info" : "danger",
             icon: previous ? "◷" : plan.apply_allowed ? "✓" : "!",
           }}
         />
       </div>
       <p className="muted">
-        Plan received <Timestamp value={received} />. A receipt time is not an
-        expiry guarantee; the backend revalidates before apply.
+        Plan received <Timestamp value={received} />. The plan is checked again
+        before sync.
       </p>
       <PlanSummary plan={plan} />
       <p className="muted">
-        CREATE and UPDATE count operations, not unique objects. Other counts
+        Create and Update count operations, not unique objects. Other counts
         describe plan rows. Filters change this view only; sync submits the
-        entire canonical plan.
+        entire reviewed plan.
       </p>
       {plan.items.filter(policyRow).map((item, i) => (
         <p className="sync-safety" key={i}>
@@ -88,8 +88,8 @@ export function PlanReview({
       {!!planCounts(plan.items).REVIEW_REQUIRED && (
         <p className="sync-attention">
           Review rows remain isolated and are not automatically adopted as
-          normal updates. They do not alone prohibit applying other operations;
-          the backend decides.
+          normal updates. Other operations may proceed only when the plan
+          permits sync.
         </p>
       )}
       {!plan.apply_allowed && (
@@ -226,10 +226,7 @@ function PlanRow({ item }: { item: SyncPlanItem }) {
           </p>
         )}
         {item.action === "UPDATE" && (
-          <p>
-            Managed-field operation. The values below are the backend-provided
-            mutation evidence.
-          </p>
+          <p>Changes to managed fields are shown below.</p>
         )}
         {item.action === "REVIEW_REQUIRED" && (
           <p className="sync-attention">

@@ -465,7 +465,7 @@ export function SourcesPage() {
               </p>
               <Link to="/diagnostics">Open system diagnostics</Link>
               <details>
-                <summary>Technical evidence</summary>
+                <summary>Technical details</summary>
                 <p>
                   Source: <code>{sourceInstance}</code>
                 </p>
@@ -616,7 +616,7 @@ function SourceConfiguration({
     <>
       <h2>Configuration</h2>
       <p className="muted">
-        Read-only registry configuration. Credentials and stable identity are
+        Read-only source configuration. Credentials and stable identity are
         protected.
       </p>
       <div className="source-panels">

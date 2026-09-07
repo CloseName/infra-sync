@@ -87,7 +87,7 @@ test("direct routes, active navigation, Back/Forward and refresh", async ({
     page.getByRole("heading", { level: 1, name: "Run details" }),
   ).toBeVisible();
   await page.reload();
-  await page.getByText("Technical evidence", { exact: true }).click();
+  await page.getByText("Technical details", { exact: true }).click();
   await expect(page.getByText("web/manual")).toBeVisible();
   await page.screenshot({
     path: "test-results/run-detail.png",
@@ -140,7 +140,7 @@ test("overview healthy, unknown, stale and partial error preserve epistemic boun
   ).toBeVisible();
   await expect(page.getByText("Not verified: 1")).toBeVisible();
   await expect(
-    page.getByText("1 completion-unconfirmed records returned"),
+    page.getByText("Completion unconfirmed: 1 returned run records"),
   ).toBeVisible();
   await page.route("**/api/v1/diagnostics", (route) =>
     route.fulfill({ status: 503, json: {} }),

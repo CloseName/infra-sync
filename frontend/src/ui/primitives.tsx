@@ -74,12 +74,14 @@ export function LoadingState({
 export function Alert({
   children,
   retry,
+  tone = "danger",
 }: {
   children: ReactNode;
   retry?: () => void;
+  tone?: "danger" | "warning";
 }) {
   return (
-    <div className="alert" role="alert">
+    <div className={`alert alert-${tone}`} role="alert">
       <div>{children}</div>
       {retry && <button onClick={retry}>Retry</button>}
     </div>

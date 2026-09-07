@@ -20,10 +20,13 @@ export function ResourceFeedback<T>({
         <p role="status">Refreshing {label}…</p>
       )}
       {resource.error && (
-        <Alert retry={resource.refresh}>
+        <Alert
+          tone={resource.data ? "warning" : "danger"}
+          retry={resource.refresh}
+        >
           {resource.data ? (
             <>
-              Could not refresh. Showing data from{" "}
+              Could not refresh {label}. Showing data from{" "}
               <Timestamp value={evidenceAt ?? resource.received} />.
             </>
           ) : (

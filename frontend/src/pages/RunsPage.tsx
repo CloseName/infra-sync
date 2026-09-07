@@ -483,7 +483,7 @@ function RunDetail({ id }: { id: string }) {
             </p>
           </section>
           <details className="source-panel">
-            <summary>Technical evidence</summary>
+            <summary>Technical details</summary>
             <dl className="technical-facts">
               {Object.entries({
                 "Run ID": data.run_id,

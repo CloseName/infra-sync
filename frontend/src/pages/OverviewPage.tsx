@@ -19,6 +19,7 @@ import {
   overviewReason,
 } from "../ui/operations";
 import { sourcePath, runPath } from "../ui/routes";
+import { staleEvidence } from "../ui/runEvidence";
 export function OverviewPage() {
   const sources = useResource(fetchSources),
     diagnostics = useResource(fetchDiagnostics),
@@ -45,9 +46,10 @@ export function OverviewPage() {
     diagnostics.refresh();
     runs.refresh();
   };
-  const staleIds = new Set(data?.stale_runs.map((w) => w.run_id));
   const running = runs.data?.filter(
-    (run) => run.status === "RUNNING" && !staleIds.has(run.run_id),
+    (run) =>
+      run.status === "RUNNING" &&
+      !staleEvidence(run, run.source_instance, data),
   );
   return (
     <main>
@@ -80,8 +82,7 @@ export function OverviewPage() {
             />
             <p>{overviewReason(data)}</p>
             <small>
-              Aggregate: {data.overall_status} · Checked{" "}
-              <Timestamp value={data.generated_at} />
+              Checked <Timestamp value={data.generated_at} />
             </small>
             <Link to="/diagnostics">Open diagnostics →</Link>
           </>
@@ -140,7 +141,7 @@ export function OverviewPage() {
             <>
               <p>
                 <Link to="/runs">
-                  {running?.length} RUNNING records in the latest{" "}
+                  {running?.length} records marked as running in the latest{" "}
                   {runs.data.length} runs
                 </Link>
               </p>
@@ -154,7 +155,7 @@ export function OverviewPage() {
           {data && data.components.run_history.status === "HEALTHY" ? (
             <p>
               <Link to="/diagnostics">
-                {data.stale_runs.length} completion-unconfirmed records returned
+                Completion unconfirmed: {data.stale_runs.length} returned run records
               </Link>
               <small>
                 Diagnostic selection is limited to 100; not a global total.
@@ -283,7 +284,7 @@ export function OverviewPage() {
                         <Badge
                           value={runStatus(
                             run.status,
-                            staleIds.has(run.run_id),
+                            !!staleEvidence(run, run.source_instance, data),
                           )}
                           code={run.status}
                         />

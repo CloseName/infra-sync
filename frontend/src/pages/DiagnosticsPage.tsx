@@ -69,14 +69,14 @@ export function DiagnosticsPage() {
                     </div>
                     <div>
                       <p>{componentReason(key, c)}</p>
-                      <small>
-                        {key === "scheduler"
-                          ? "Last recorded activity"
-                          : "Last response"}
-                        : <Timestamp value={c.last_seen_at} />
-                      </small>
+                      {key === "scheduler" && (
+                        <small>
+                          Last recorded activity:{" "}
+                          <Timestamp value={c.last_seen_at} />
+                        </small>
+                      )}
                       <details>
-                        <summary>Technical evidence</summary>
+                        <summary>Technical details</summary>
                         <dl className="technical-facts">
                           <div>
                             <dt>Recorded status</dt>
@@ -89,7 +89,11 @@ export function DiagnosticsPage() {
                             </dd>
                           </div>
                           <div>
-                            <dt>Last success</dt>
+                            <dt>Last response</dt>
+                              <dd><Timestamp value={c.last_seen_at} /></dd>
+                            </div>
+                            <div>
+                              <dt>Last success</dt>
                             <dd>
                               <Timestamp value={c.last_success_at} />
                             </dd>

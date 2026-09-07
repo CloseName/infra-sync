@@ -181,7 +181,7 @@ export function SourceSync({
   return (
     <section className="sync-workspace" aria-labelledby="sync-title">
       <h2 id="sync-title">Sync</h2>
-      <p>Build plan → Review → Confirm Sync → Result</p>
+      <p>Build plan → Review → Sync to NetBox → Result</p>
       <p className="muted">
         {detail.name} → Site {detail.site_slug} / {detail.cluster_name}
       </p>
@@ -227,7 +227,7 @@ export function SourceSync({
             <strong>Plan could not be built.</strong>
             <p>{planningError.message}</p>
             <details>
-              <summary>Safe technical details</summary>
+              <summary>Technical details</summary>
               <code>{planningError.code}</code>
             </details>
             <p>
@@ -246,6 +246,7 @@ export function SourceSync({
             }
             role={result.state === "SUCCEEDED" ? "status" : "alert"}
             aria-label="Sync result"
+            data-state={result.state}
           >
             <h3>
               <Badge value={result.status} />
@@ -274,7 +275,7 @@ export function SourceSync({
             </div>
             {result.code && (
               <details>
-                <summary>Safe technical details</summary>
+                <summary>Technical details</summary>
                 <code>{result.code}</code>
               </details>
             )}
@@ -285,8 +286,8 @@ export function SourceSync({
         <div className="source-panel">
           <h3>No plan yet</h3>
           <p>
-            Build a read-only plan of managed operations before syncing.
-            Discovery is optional and is not a prerequisite for Build plan.
+            Build a plan to review the proposed changes. Discovery is an
+            optional, separate inspection.
           </p>
         </div>
       )}
@@ -305,7 +306,7 @@ export function SourceSync({
         <div className="sync-action-bar">
           <p>
             Missing objects are retained in NetBox. No deletes. Only the
-            reviewed canonical plan is submitted.
+            reviewed plan is submitted.
           </p>
           <button
             ref={confirmButton}
@@ -390,7 +391,7 @@ export function SourceSync({
       >
         <h2 id="confirm-title">Sync changes to NetBox</h2>
         <p id="confirm-description">
-          Confirm the complete reviewed canonical plan for this source.
+          Confirm the complete reviewed plan for this source.
         </p>
         {plan && (
           <>
@@ -419,12 +420,12 @@ export function SourceSync({
         )}
         <p>
           Review rows are isolated, not automatically adopted or applied as
-          normal updates. The backend revalidates the exact digest before
-          issuing and consuming confirmation.
+          normal updates. The plan is checked again before sync; changes to the
+          source or NetBox can invalidate it.
         </p>
         <ul>
           <li>Missing objects are retained. No deletes.</li>
-          <li>Only this reviewed canonical plan is submitted.</li>
+          <li>Only this reviewed plan is submitted.</li>
           <li>No automatic retry after an uncertain outcome.</li>
         </ul>
         {applying && (

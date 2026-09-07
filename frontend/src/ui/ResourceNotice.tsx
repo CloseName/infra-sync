@@ -10,7 +10,7 @@ export function ResourceNotice({
   retry: () => void;
 }) {
   return resource.error ? (
-    <Alert retry={retry}>
+    <Alert tone={resource.data ? "warning" : "danger"} retry={retry}>
       {resource.data ? (
         <>
           Could not refresh {name}. Showing data from{" "}

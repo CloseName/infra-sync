@@ -11,7 +11,7 @@ export interface SyncOutcome {
 const statuses: Record<string, [string, string, Status["tone"]]> = {
   SUCCEEDED: [
     "Sync completed",
-    "The reviewed canonical plan completed. Plan operation counts are not an audit of individual applied objects.",
+    "The reviewed plan completed. Plan counts describe operations, not individual applied objects.",
     "success",
   ],
   FAILED_BEFORE_WRITE: [
@@ -37,7 +37,7 @@ const statuses: Record<string, [string, string, Status["tone"]]> = {
   OUTCOME_UNCERTAIN: [
     "Outcome unknown",
     "Final outcome could not be confirmed. Do not retry automatically.",
-    "warning",
+    "danger",
   ],
   STALE: [
     "Stale plan",

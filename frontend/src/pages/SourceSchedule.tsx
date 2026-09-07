@@ -40,7 +40,7 @@ export function ScheduleSummary({
         <dd>Every {interval(schedule.sync_interval_seconds)}</dd>
       </div>
       <div>
-        <dt>Scheduler state</dt>
+        <dt>Scheduled activity</dt>
         <dd>
           <Badge
             value={scheduleStates[schedule.scheduler_state]}
@@ -234,7 +234,7 @@ export function SourceSchedule({
           {editing && (
             <form onSubmit={save} aria-label="Edit schedule" noValidate>
               <fieldset disabled={phase === "saving" || reloadPending}>
-                <legend>Automatic synchronization</legend>
+                <legend>Automatic sync</legend>
                 <label className="schedule-toggle">
                   <input
                     autoFocus
@@ -314,7 +314,7 @@ export function SourceSchedule({
                 {baseline &&
                   (baseline.sync_interval_seconds < 60 ||
                     baseline.sync_interval_seconds > 86400) && (
-                    <p className="alert">
+                    <p className="alert alert-warning">
                       Stored frequency: every{" "}
                       {interval(baseline.sync_interval_seconds)}. Registration
                       accepts a wider range than schedule updates. Choose a
@@ -370,7 +370,7 @@ export function SourceSchedule({
         </p>
       )}
       {!sourceEnabled && (
-        <p className="alert">
+        <p className="alert alert-warning">
           Source disabled. Automatic runs cannot start while the source is
           disabled, even if automatic sync is configured on.
         </p>

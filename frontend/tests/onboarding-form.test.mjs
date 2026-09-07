@@ -24,6 +24,8 @@ function elements(node) {
 }
 
 function setup(context) {
+  context.mock.method(React, "useRef", () => ({current: null}));
+  context.mock.method(React, "useEffect", () => {});
   const state = [];
   let cursor = 0;
   context.mock.method(React, 'useState', (initial) => {
@@ -84,7 +86,7 @@ test('test-review-confirm-register clears credentials and keeps sync disabled', 
   assert.equal(calls, 1, 'No registration before confirmation');
   await app.render().find((element) => element.type === 'form').props.onSubmit(event({ ...registration, confirm: 'on' }));
   assert.equal(calls, 2);
-  assert.ok(app.render().some((element) => element.type === 'h1' && element.props.children === 'Source registered'));
+  assert.ok(app.render().some((element) => element.props?.title === 'Source registered'));
   assert.ok(!JSON.stringify(app.state).includes('opaque-token'));
 });
 

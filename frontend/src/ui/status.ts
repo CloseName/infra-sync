@@ -28,7 +28,7 @@ export const runStates = {
   SUCCEEDED: state("Completed", "success", "✓"),
   FAILED_BEFORE_WRITE: state("Failed before changes", "danger", "!"),
   PARTIALLY_APPLIED: state("Partially applied", "warning", "!"),
-  OUTCOME_UNCERTAIN: state("Outcome unknown", "warning", "?"),
+  OUTCOME_UNCERTAIN: state("Outcome unknown", "danger", "?"),
   BLOCKED: state("Blocked by safety checks", "danger", "!"),
   LOCKED: state("Not started — sync busy", "warning", "◷"),
   FAILED: state("Failed", "danger", "!"),
