@@ -1,11 +1,12 @@
-# Frontend foundation (UI-0 / UI-1 / UI-2 / UI-3)
+# Frontend foundation (UI-0 / UI-1 / UI-2 / UI-3 / UI-4)
 
 The React application uses React Router in declarative BrowserRouter mode.
 Routes: Overview `/`, Sources `/sources`, registration `/sources/add`,
 source `/sources/:sourceInstance`, Runs `/runs`, run `/runs/:runId`,
 and Diagnostics `/diagnostics`. Add Source is an action within Sources.
 Settings is intentionally absent. Source detail and scheduling are organized into
-source sections below. Global Runs, Diagnostics and registration retain their existing workflows.
+source sections below. Runs and Diagnostics use the existing read-only contracts;
+registration retains its existing workflow.
 
 FastAPI serves the same built index only for the explicit frontend paths.
 Unknown API routes, missing assets and unknown frontend paths do not fall back
@@ -308,7 +309,148 @@ while old plans are marked unusable.
 - git diff --check and changed frontend branding scan pass.
 
 All browser mutations use mocked APIs. No real provider, NetBox, historical
-server or production was touched, and no push/deploy was performed. UI-4 global
-Runs/Diagnostics and UI-5 visual polish remain separate work. Three-way diff,
+server or production was touched, and no push/deploy was performed. At the UI-3
+checkpoint, UI-4 Runs/Diagnostics and UI-5 visual polish remained separate work. Three-way diff,
 persisted snapshots, selective apply, cancellation and progress jobs are not
 introduced.
+
+## Runs and Diagnostics (UI-4)
+
+Pre-implementation baseline: `cc63c6a77605743b4befcfa06216657ffc335f89`.
+The old Runs screen labeled null durations as in progress, called plan counters
+"Changes", and discarded pagination. The old Diagnostics screen treated a
+component without a safe code as Available, including UNKNOWN, and discarded
+previous data after a refresh failure. UI-4 changes frontend presentation only;
+API DTOs, persistence and safety boundaries are unchanged.
+
+### Run history and detail
+
+Runs uses the existing server filters `source_instance` (exact source ID),
+`source_type`, `status`, and `trigger`, with `limit=50`. Filters and cursor
+are URL parameters; changing filters resets the cursor. Results are ordered
+by started_at DESC, run_id DESC. Older runs follows the returned UUID cursor;
+Newest runs clears it. Browser Back/Forward restores earlier cursor locations.
+A full last page can return a cursor followed by an empty response, because the
+backend sets next_cursor whenever exactly limit records were returned. The UI
+does not infer a total, page count or timeframe from this bounded selection.
+
+Only the result resource remounts on query changes, preventing old-filter rows
+from appearing beneath new filters while preserving filter control focus.
+An editable source-ID draft is associated with its URL value; restoring a
+different URL does not depend on a later effect updating the input.
+Run links retain the originating list query in browser history state.
+Source rows link to the canonical source route; source Runs still opens the
+same global run detail. Unknown IDs and read failures offer a read retry.
+
+Columns are Started, Source, Trigger, Outcome, Duration, Plan actions, Attention.
+Plan actions describe the persisted ActionCounts.from_items projection. They are
+not unique objects or confirmed applied changes, even for successful runs.
+All eight counters are available in detail. A zero summary does not assert that
+NetBox was unchanged. Missing duration always reads Not recorded independently
+of outcome. Times reuse shared human formatters and expose exact timestamps.
+
+The existing shared mapping remains authoritative:
+
+| Recorded status | Presentation |
+| --- | --- |
+| SUCCEEDED | Completed |
+| FAILED_BEFORE_WRITE | Failed before changes |
+| BLOCKED | Blocked by safety checks |
+| LOCKED | Not started — sync busy |
+| PARTIALLY_APPLIED | Partially applied |
+| OUTCOME_UNCERTAIN | Outcome unknown |
+| FAILED | Failed |
+| RUNNING | Recorded as running |
+| RUNNING with matching stale evidence | Completion unconfirmed |
+
+Stale presentation requires a healthy history check and matching run_id AND
+source_instance in the diagnostic stale selection. It never changes persisted
+status, labels a newer completed run stale, or treats a missing duration as
+evidence of progress. The backend uses its configurable stale threshold
+(default 7200 seconds), returning at most the 100 oldest RUNNING records.
+Absence from this sample does not establish completion. The UI shows the exact
+supporting sentence, safe evidence and age at the diagnostic snapshot, linking
+to the run/source/system diagnostics. No Retry Sync action is introduced.
+
+Run detail starts with outcome/source/trigger/start/duration/attention, then
+plan actions, safe result message, factual Started/Finished lifecycle and
+diagnostic links. A missing finished_at means no completion timestamp was
+recorded; it does not fabricate stages. Uncertain and partial outcomes retain
+a prominent investigation message. Run ID, recorded status, digest, planner
+version, safe code, raw times and created_by live in native Technical evidence.
+There is no schema version in this DTO, so none is invented.
+
+### Diagnostic evidence
+
+The aggregate backend status is preserved. Stale-only degraded evidence can
+explain that checked components are available while historical completion is
+unconfirmed; it does not become Healthy. A healthy aggregate is qualified as
+a snapshot assessment, not a statement that all integrations are operational.
+
+Compact component rows cover API, Registry, Run history, Discovery worker,
+Apply worker and Scheduled activity. API/read checks and bounded worker health
+responses describe what was actually tested. Worker health does not test
+provider or NetBox connectivity. Scheduled activity is persisted run evidence,
+not a scheduler heartbeat. UNKNOWN stays Not verified, including no scheduled
+activity. Native disclosure exposes safe codes and actual evidence timestamps.
+
+Attention combines component failures, returned stale/delay warnings and latest
+source failures/uncertainty, with links to checks, runs, source diagnostics and
+source schedules. It does not claim a global issue total. At 100 stale records,
+the UI explicitly says that more may exist. Source assessments require healthy
+registry AND history checks; partial failures never become an empty configuration
+claim. Source Diagnostics reuses the attention presentation without duplicating
+global components. Source header/last run/source Runs use the same exact stale
+join. Overview's existing bounded dashboard is otherwise unchanged.
+
+All screens keep previously loaded evidence on a failed refresh and expose a
+read-only retry. Diagnostic warnings use generated_at, the snapshot timestamp;
+history uses response receipt time because it has no snapshot timestamp.
+Query changes do not retain another query's rows. No polling was added.
+
+### Layout and remaining boundaries
+
+Native labeled filters, semantic table headers, one h1, route links, keyboard
+disclosure and visible focus continue the existing UI foundation. Plan actions
+hide at 1280 and below, duration at 1024 and below; every value remains in run
+detail. Tables scroll locally, with keyboard focus, while diagnostic rows stack
+at 768. UI-5 retains whole-application visual polish and final hardening.
+
+No migrations, retries of synchronization, stale recovery, cancellation,
+delete, activity persistence, credentials, totals endpoint or timeframe filter
+were added. Push/deploy requires a separate explicit request.
+
+### UI-4 validation
+
+- 44 frontend unit tests pass. Obsolete page-source string checks were replaced
+  with behavioral browser tests and pure evidence/contract checks.
+- 98 Playwright tests pass across UI-0 through UI-4, including all eight outcomes,
+  null durations, exact stale joins, 51-row cursor navigation, an exactly-full
+  terminal page, URL restoration, empty/errors, retries, source links, and
+  stale/partial/unknown/unavailable diagnostic scenarios. Refresh timestamps
+  assert the actual diagnostic generated_at value. The source-filter Back race
+  and retained diagnostic refresh checks also passed five targeted repeats.
+- Strict TypeScript and Vite production build pass.
+- 18 focused backend tests pass unchanged: test_run_history.py,
+  test_run_history_api.py and test_diagnostics.py. No wider backend suite was
+  required because backend contracts/code were not changed.
+- Mocked state galleries cover 1440/1280/1024/768: one run, 50-row page with older
+  records, filters, empty/error, uncertain/stale details, healthy/stale-only,
+  unavailable worker, no scheduled activity, mixed source issues and failed
+  refresh. Layout checks assert no document overflow; screenshots are retained
+  in ignored frontend/test-results. Representative screenshots were inspected.
+- Docker Engine 29.7.2 / Compose 5.5.0: Dockerfile.web build and production smoke
+  pass on final frontend code. Default Uvicorn serves exact /app/web/index.html
+  bytes as UID 10001 for /, /sources, /sources/test-source, /sources/add, /runs,
+  /runs/test-run-id, /diagnostics and /sources/test-source/diagnostics.
+  Served JS/CSS match image files byte-for-byte.
+- /api/unknown, /api/v1/unknown, /assets/missing.js, /assets/missing.css,
+  /unknown-frontend-route, /sources/test-source/unknown and
+  /runs/test-run-id/unknown retain JSON 404 responses.
+- Both disposable smoke runs used network none, read-only filesystem, no mounted
+  credentials or published ports. Uniquely labeled containers/images were
+  removed after verification; shared images/cache were not pruned.
+- git diff --check and frontend stale-branding scan pass.
+
+No live provider, NetBox, historical server or production was touched.
+No push/deploy was performed. UI-5 was not started.
