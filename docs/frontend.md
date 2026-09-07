@@ -1,4 +1,4 @@
-# Frontend foundation (UI-0 / UI-1 / UI-2)
+# Frontend foundation (UI-0 / UI-1 / UI-2 / UI-3)
 
 The React application uses React Router in declarative BrowserRouter mode.
 Routes: Overview `/`, Sources `/sources`, registration `/sources/add`,
@@ -95,9 +95,9 @@ mounted source, including a later visit to the same ID. HTTP cancellation does
 not cancel work already accepted by the backend. No automatic write retry occurs.
 
 Discovery is optional and makes no NetBox changes. Build Plan remains independently
-available. Exact digest confirmation, the existing window.confirm prompt, shared
-apply lock and stale-plan protection are unchanged. UI-3 will redesign the plan
-review and confirmation experience. This phase does not imply new workflow gates.
+available. UI-2 retained the original confirmation prompt, shared apply lock and
+stale-plan protection. UI-3 replaces the prompt and review presentation below
+while preserving the backend protocol.
 
 The header separates source enabled, automatic sync, last run, last success and
 attention. Registry enabled is configuration, not provider health. Diagnostic
@@ -179,3 +179,136 @@ automatically even when automatic sync is configured on.
 Browser writes use mocked APIs only. No live provider, NetBox, registry or server
 was modified; no push or deploy. Deep Plan/Sync review, global Runs/Diagnostics,
 onboarding and final visual polish remain deferred to UI-3 and later phases.
+
+## Discovery, Plan and Sync workflow (UI-3)
+
+The implementation was audited against baseline
+`2b53ad05cbfbe696dc9ed0ee341818ed55480ade`. UI-3 changes only the frontend,
+tests and this document. No backend DTO, write endpoint, worker, migration,
+lock, ownership check or privilege boundary changed.
+
+The Sync section at `/sources/:sourceInstance/sync` makes Build plan the
+primary action. Discovery is a separate optional read-only tool. It inspects
+source/NetBox matching, shows actual classification counts and exposes match
+IDs/reason codes in details. Planning performs fresh reads; it does not reuse
+the displayed discovery response. No snapshot history or change-since-discovery
+claims are made.
+
+### Plan evidence and counts
+
+The audited runtime plan records guarded executor mutations. CREATE/UPDATE rows
+are operations, and several operations can concern one object. Other counts are
+explicitly labeled as rows. A source-kind RETAIN_ONLY row is a retention policy,
+not a count of missing objects; it is excluded from numeric row totals and shown
+as a safety note. Non-source retain rows can still be inspected if supplied.
+
+Review defaults to Attention when BLOCKED rows exist, otherwise Changes.
+Changes / Attention / All, action, kind and search filters affect display only.
+Counts remain visible even when their rows are hidden. Rows are initially shown
+in batches of 50. There are no selection checkboxes or partial-apply requests.
+
+Expandable rows display only supplied managed-field pairs:
+NetBox before -> Proposed. Missing fields say Not provided, while explicit null,
+empty string, booleans and nested JSON retain their actual meaning. CREATE does
+not fabricate absent-before values. A missing pair list yields no inferred diff.
+Malformed or duplicate field pairs fail client validation rather than being
+silently collapsed. Internal references are displayed as provided, not resolved
+into invented objects. Distinct discovered-state provenance is absent from the
+contract: three-way diff remains deferred.
+
+REVIEW_REQUIRED rows are isolated by the existing guarded workflow and are not
+automatically adopted as normal updates. They do not themselves disable global
+apply. Only backend apply_allowed authorizes the confirmation action. BLOCKED
+rows receive prominent attention, with their actual reason, and a disallowed
+plan cannot open confirmation.
+
+The UI records the response receipt time; plans have no server creation timestamp
+or expiry countdown. Digests, fingerprints, schema/planner versions, external IDs
+and raw reason codes are secondary details. Starting a new build marks the old
+plan as previous and unusable; a failed build retains its evidence without
+re-enabling apply.
+
+### Confirmation and execution
+
+The native modal replaces window.confirm. It shows source, target, plan receipt
+time, complete plan totals and no-delete/retain-only notes. Cancel receives initial
+focus; Tab/Shift+Tab wrap within the dialog. Escape and Cancel close it before
+submission and return focus. Pending validation/apply disables duplicate submit
+and dismissal; browser navigation still does not promise server cancellation.
+An unsubmitted dialog closes when leaving the Sync tab.
+
+The request sequence is unchanged:
+1. Build a server-generated plan with an empty request.
+2. Submit its exact digest and confirmed=true for preparation.
+3. Keep the returned token only in the pending function scope.
+4. Submit only that token to apply.
+
+The worker re-plans before issuing and consuming the capability. The frontend
+does not replace stale checks, apply_allowed, the shared lock or source/NetBox
+ownership decisions. Every attempted confirmation makes the displayed plan
+unusable for a second attempt; a new build and explicit review are required.
+No token enters a URL, browser storage or rendered technical details.
+
+Known phases are Building read-only plan, Preparing / validating and Submitting /
+applying. Elapsed time is shown outside the live announcement; no percentages or
+unreported internal stages are invented. Workflow requests have a 330-second
+client response bound, longer than the current 310-second apply transport bound.
+A client timeout does not cancel work already accepted by the server.
+
+### Outcomes and uncertainty
+
+The actual successful-response DTO allows SUCCEEDED, FAILED_BEFORE_WRITE,
+PARTIALLY_APPLIED and OUTCOME_UNCERTAIN, with optional run_id. The client now
+preserves those values instead of collapsing all responses into a success string.
+A digest mismatch is treated as unconfirmed outcome, not success.
+
+Stable error codes distinguish PLAN_STALE/invalid confirmations, PLAN_BLOCKED,
+APPLY_LOCKED, failed-before-write, partial and uncertain outcomes. APPLY_FAILED
+uses the backend's safe generic wording, Manual sync request failed; it does not
+claim no changes. Generic FAILED is a history status, not an invented additional
+ApplyResultDTO value. Unknown/malformed/lost responses after submitting apply
+remain Outcome unknown. A failed preparation is distinct: the browser has not
+submitted apply.
+
+Partial and uncertain results remain prominent across sibling tabs and across
+new planning. They direct the operator to run history/diagnostics; there is no
+Retry Sync action or automatic write retry. Only a valid supplied run_id produces
+Open run. The current error envelope has no run_id, so error responses cannot
+offer a fabricated run-detail link.
+
+SourceSync stays mounted across sibling tabs under the existing source-keyed
+route wrapper. Late discovery/plan/apply responses cannot publish into another
+source. A preparation response received after leaving the source is explicitly
+prevented from launching apply. Prior results are retained during planning,
+while old plans are marked unusable.
+
+### UI-3 validation
+
+- 42 frontend unit tests pass: exact pair handling, operation/policy counts,
+  malformed data, real outcome DTOs, digest mismatch, safe error mappings.
+- 68 Playwright tests pass across the frontend, including independent Discovery,
+  105 unchanged rows, mixed/review/blocked plans, missing fields, unusual kinds,
+  modal focus/Escape, exact token/digest bodies, duplicate clicks, preparation and
+  apply races, stale rejection, response loss and persistent uncertainty.
+- TypeScript strict and Vite production build pass.
+- 36 focused backend tests pass unchanged: sync_plan, planning_netbox,
+  manual_sync, manual_sync_web and apply_worker.
+- Screenshots inspected for empty Sync, Discovery pending/result, large/mixed
+  plans, review/blocked/stale, confirmation, success/uncertain and narrow layouts.
+  Diff columns stack per field at 768; page overflow and dialog widths are checked
+  at 1440/1280/1024/768.
+- Docker Engine 29.7.2 / Compose 5.5.0: Dockerfile.web builds; default Uvicorn serves
+  /, /sources/test-source, /sources/test-source/sync and the Schedule route from
+  /app/web as UID 10001. Served JS/CSS bytes match the built files.
+  Unknown frontend/source routes, unknown /api and /api/v1 routes and missing
+  static assets remain JSON 404, not SPA HTML.
+- The disposable smoke had network none, read-only filesystem and no mounts or
+  published ports. Its uniquely labeled container/image were removed without
+  pruning shared artifacts.
+- git diff --check and changed frontend branding scan pass.
+
+All browser mutations use mocked APIs. No real provider, NetBox, historical
+server or production was touched, and no push/deploy was performed. UI-4 global
+Runs/Diagnostics and UI-5 visual polish remain separate work. Three-way diff,
+persisted snapshots, selective apply, cancellation and progress jobs are not
+introduced.
