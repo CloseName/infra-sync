@@ -22,7 +22,11 @@ export function breadcrumbs(pathname: string) {
     }
     result.push({
       label:
-        parts[0] === "sources" && parts[1] === "add" ? "Add source" : label,
+        parts[0] === "runs"
+          ? "Run details"
+          : parts[0] === "sources" && parts[1] === "add"
+            ? "Add source"
+            : label,
       to: pathname,
     });
   }

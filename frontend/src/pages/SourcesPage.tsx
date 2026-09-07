@@ -4,7 +4,7 @@ import { fetchSource, SourceNotFoundError } from "../api/sources";
 import type { Source } from "../api/sources";
 import { fetchSchedule } from "../api/schedule";
 import { fetchDiagnostics } from "../api/diagnostics";
-import type { DiagnosticRun } from "../api/diagnostics";
+import type { DiagnosticRun, Diagnostics } from "../api/diagnostics";
 import { fetchSourceRuns } from "../api/runs";
 import { useResource } from "../ui/useResource";
 import { diagnosticIndex, attention } from "../ui/operations";
@@ -20,6 +20,8 @@ import { duration } from "../ui/format";
 import { sourcePath, runPath } from "../ui/routes";
 import { SourceSync } from "./SourceSync";
 import { SourceSchedule, ScheduleSummary } from "./SourceSchedule";
+import { DiagnosticAttention } from "../ui/DiagnosticAttention";
+import { staleEvidence } from "../ui/runEvidence";
 export const sourceTabs = [
   "Overview",
   "Sync",
@@ -28,11 +30,17 @@ export const sourceTabs = [
   "Diagnostics",
   "Configuration",
 ];
-function RunEvidence({ run }: { run: DiagnosticRun | null }) {
+function RunEvidence({
+  run,
+  stale = false,
+}: {
+  run: DiagnosticRun | null;
+  stale?: boolean;
+}) {
   return run ? (
     <>
       <Link to={runPath(run.run_id)}>
-        <Badge value={runStatus(run.status)} />
+        <Badge value={runStatus(run.status, stale)} />
       </Link>{" "}
       <Timestamp value={run.started_at} />
     </>
@@ -172,7 +180,19 @@ export function SourcesPage() {
                 <dt>Last run</dt>
                 <dd>
                   {evidence ? (
-                    <RunEvidence run={evidence.latest_run} />
+                    <RunEvidence
+                      run={evidence.latest_run}
+                      stale={
+                        !!(
+                          evidence.latest_run &&
+                          staleEvidence(
+                            evidence.latest_run,
+                            sourceInstance,
+                            diagnostics.data,
+                          )
+                        )
+                      }
+                    />
                   ) : (
                     "Unavailable"
                   )}
@@ -236,7 +256,7 @@ export function SourcesPage() {
               {diagnostics.data && (
                 <>
                   {" "}
-                  Showing evidence from{" "}
+                  Could not refresh. Showing data from{" "}
                   <Timestamp value={diagnostics.data.generated_at} />.
                 </>
               )}
@@ -253,7 +273,19 @@ export function SourcesPage() {
                       <dt>Last run</dt>
                       <dd>
                         {evidence ? (
-                          <RunEvidence run={evidence.latest_run} />
+                          <RunEvidence
+                            run={evidence.latest_run}
+                            stale={
+                              !!(
+                                evidence.latest_run &&
+                                staleEvidence(
+                                  evidence.latest_run,
+                                  sourceInstance,
+                                  diagnostics.data,
+                                )
+                              )
+                            }
+                          />
                         ) : (
                           "Unavailable"
                         )}
@@ -344,7 +376,12 @@ export function SourcesPage() {
               afterSave={diagnostics.refresh}
             />
           </div>
-          {tab === "Runs" && <SourceRuns instance={sourceInstance} />}
+          {tab === "Runs" && (
+            <SourceRuns
+              instance={sourceInstance}
+              diagnostics={diagnostics.data}
+            />
+          )}
           {tab === "Diagnostics" && (
             <section className="source-panel">
               <div className="page-heading">
@@ -367,7 +404,7 @@ export function SourcesPage() {
                   </dd>
                 </div>
                 <div>
-                  <dt>Scheduler state (at evidence time)</dt>
+                  <dt>Scheduled activity (at evidence time)</dt>
                   <dd>
                     {evidence ? (
                       <Badge value={scheduleStates[evidence.scheduler_state]} />
@@ -380,7 +417,19 @@ export function SourcesPage() {
                   <dt>Last run</dt>
                   <dd>
                     {evidence ? (
-                      <RunEvidence run={evidence.latest_run} />
+                      <RunEvidence
+                        run={evidence.latest_run}
+                        stale={
+                          !!(
+                            evidence.latest_run &&
+                            staleEvidence(
+                              evidence.latest_run,
+                              sourceInstance,
+                              diagnostics.data,
+                            )
+                          )
+                        }
+                      />
                     ) : (
                       "Unavailable"
                     )}
@@ -404,21 +453,12 @@ export function SourcesPage() {
                 </div>
               </dl>
               <h3>Attention</h3>
-              <p>
-                {concern?.label ??
-                  (evidence
-                    ? evidence.status === "UNKNOWN"
-                      ? "Not verified"
-                      : "None reported"
-                    : "Unavailable")}
-              </p>
-              {evidence?.warnings.map((warning) => (
-                <p key={warning}>
-                  {warning === "STALE_RUNNING"
-                    ? "A recorded run has unconfirmed completion. Check its outcome before retrying."
-                    : "Scheduled activity is later than expected."}
-                </p>
-              ))}
+              {diagnostics.data && (
+                <DiagnosticAttention
+                  data={diagnostics.data}
+                  source={sourceInstance}
+                />
+              )}
               <p className="muted">
                 Evidence is derived from persisted activity. It does not prove
                 source connectivity or a live scheduler heartbeat.
@@ -448,7 +488,13 @@ export function SourcesPage() {
     </main>
   );
 }
-function SourceRuns({ instance }: { instance: string }) {
+function SourceRuns({
+  instance,
+  diagnostics,
+}: {
+  instance: string;
+  diagnostics: Diagnostics | null;
+}) {
   const resource = useResource(
     useCallback((signal) => fetchSourceRuns(instance, signal), [instance]),
   );
@@ -489,7 +535,12 @@ function SourceRuns({ instance }: { instance: string }) {
                   <tr key={run.run_id}>
                     <td>
                       <Link to={runPath(run.run_id)}>
-                        <Badge value={runStatus(run.status)} />
+                        <Badge
+                          value={runStatus(
+                            run.status,
+                            !!staleEvidence(run, instance, diagnostics),
+                          )}
+                        />
                       </Link>
                     </td>
                     <td>{run.trigger}</td>

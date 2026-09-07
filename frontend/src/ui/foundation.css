@@ -855,3 +855,198 @@ code {
     padding: var(--space-4);
   }
 }
+
+/* UI-4: recorded activity and diagnostic evidence */
+.operations-workspace {
+  min-width: 0;
+}
+.run-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius);
+}
+.run-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-weight: 600;
+}
+.run-filters input {
+  width: 165px;
+}
+.run-filters select {
+  max-width: 235px;
+}
+.evidence-toolbar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+.run-table table {
+  min-width: 740px;
+}
+.run-table td {
+  vertical-align: top;
+}
+.run-table td:nth-child(2) {
+  overflow-wrap: anywhere;
+  min-width: 105px;
+}
+.run-table td:nth-child(6) {
+  min-width: 140px;
+  max-width: 240px;
+}
+.operations-workspace .source-panel {
+  margin-top: 16px;
+}
+.diagnostic-summary {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.diagnostic-summary h2 {
+  margin-bottom: 8px;
+}
+.diagnostic-summary p {
+  margin: 0;
+}
+.diagnostic-components {
+  display: grid;
+}
+.diagnostic-component {
+  display: grid;
+  grid-template-columns: 165px minmax(0, 1fr) 130px;
+  gap: 20px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 16px;
+}
+.diagnostic-component h3 {
+  margin: 0 0 8px;
+}
+.diagnostic-component p {
+  margin: 0 0 6px;
+}
+.operations-workspace details {
+  margin-top: 10px;
+}
+.operations-workspace summary,
+.diagnostic-attention summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.operations-workspace summary:focus-visible,
+.diagnostic-attention summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+.technical-facts {
+  display: grid;
+  gap: 10px;
+}
+.technical-facts > div {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+}
+.technical-facts dt {
+  color: var(--muted);
+}
+.technical-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.evidence-note {
+  border-left: 3px solid var(--warning);
+  background: var(--warning-bg);
+  padding: 8px 14px;
+  margin-top: 16px;
+}
+.evidence-note p {
+  margin: 4px 0;
+}
+.attention-rows {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.attention-rows > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px 160px;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+.attention-rows p {
+  margin: 4px 0;
+}
+.attention-rows li,
+.diagnostic-component {
+  overflow-wrap: anywhere;
+}
+.evidence-links {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 10px;
+}
+.run-lifecycle {
+  padding-left: 20px;
+  line-height: 2;
+}
+@media (max-width: 1280px) {
+  .run-table .optional-actions {
+    display: none;
+  }
+}
+@media (max-width: 1024px) {
+  .run-table .optional-duration {
+    display: none;
+  }
+  .diagnostic-component {
+    grid-template-columns: 140px minmax(0, 1fr);
+  }
+  .diagnostic-component > :last-child {
+    grid-column: 2;
+  }
+  .attention-rows > li {
+    grid-template-columns: minmax(0, 1fr) 130px;
+  }
+  .attention-rows .evidence-links {
+    grid-column: 1 / -1;
+    flex-direction: row;
+  }
+}
+@media (max-width: 768px) {
+  .diagnostic-summary {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .diagnostic-component {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .diagnostic-component > :last-child {
+    grid-column: 1;
+  }
+  .technical-facts > div {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+  .run-filters label {
+    flex: 1 1 160px;
+  }
+  .run-filters input,
+  .run-filters select {
+    width: 100%;
+    max-width: none;
+  }
+}

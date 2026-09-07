@@ -1,67 +1,232 @@
-import { useEffect, useState } from 'react';
-import { fetchDiagnostics } from '../api/diagnostics';
-import type { DiagnosticCode, Diagnostics, DiagnosticStatus } from '../api/diagnostics';
-
-const components = {
-  api: 'API', registry: 'Registry DB', run_history: 'Run History',
-  discovery_worker: 'Discovery Worker', apply_worker: 'Apply Worker', scheduler: 'Scheduled Activity',
-} as const;
-const messages: Record<DiagnosticCode, string> = {
-  REGISTRY_UNAVAILABLE: 'Source registry is unavailable.',
-  RUN_HISTORY_UNAVAILABLE: 'Synchronization history is unavailable.',
-  DISCOVERY_WORKER_UNAVAILABLE: 'Discovery worker is unavailable.',
-  APPLY_WORKER_UNAVAILABLE: 'Apply worker is unavailable.',
-  SCHEDULED_ACTIVITY_DELAYED: 'Scheduled synchronization activity is later than expected.',
-  STALE_RUNNING: 'Synchronization run has remained RUNNING longer than expected. Automatic retry was not performed.',
-};
-const shownStatus = (status: DiagnosticStatus) => status.replaceAll('_', ' ');
-const time = (value: string | null) => value ? new Date(value).toLocaleString() : 'None recorded';
-
+import { Link } from "react-router-dom";
+import { fetchDiagnostics } from "../api/diagnostics";
+import { useResource } from "../ui/useResource";
+import { ResourceFeedback } from "../ui/ResourceFeedback";
+import { Badge, PageHeader, Timestamp } from "../ui/primitives";
+import { healthStatus, runStatus, scheduleStates } from "../ui/status";
+import {
+  componentLabels,
+  componentReason,
+  aggregateReason,
+} from "../ui/diagnosticEvidence";
+import type { ComponentKey } from "../ui/diagnosticEvidence";
+import { diagnosticsUsable } from "../ui/operations";
+import { DiagnosticAttention } from "../ui/DiagnosticAttention";
+import { staleEvidence } from "../ui/runEvidence";
+import { sourcePath, runPath } from "../ui/routes";
 export function DiagnosticsPage() {
-  const [data, setData] = useState<Diagnostics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController(); let active = true;
-    const timeout = window.setTimeout(() => controller.abort(), 10000);
-    setLoading(true); setError(false);
-    fetchDiagnostics(controller.signal).then((value) => { if (active) setData(value); })
-      .catch(() => { if (active) { setError(true); setData(null); } })
-      .finally(() => { window.clearTimeout(timeout); if (active) setLoading(false); });
-    return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
-  }, [revision]);
-  return <main><div className="page-heading"><div><p className="eyebrow">OPERATOR DIAGNOSTICS</p>
-    <h1>Diagnostics</h1><p className="intro">Read-only runtime, worker, history, and source visibility.</p></div>
-    <button disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button></div>
-    {loading && <p role="status">Loading diagnostics...</p>}
-    {!loading && error && <p role="alert" className="source-error">Diagnostics unavailable.</p>}
-    {!loading && data && <><section className="overview"><div><span className="eyebrow">SYSTEM STATUS</span>
-      <h2>{data.overall_status}</h2><p>Generated {new Date(data.generated_at).toLocaleString()}</p></div>
-      <span className={`diagnostic-status diagnostic-${data.overall_status.toLowerCase()}`}>{data.overall_status}</span></section>
-      <section className="components" aria-label="Diagnostic components">{Object.entries(components).map(([key, label]) => {
-        const component = data.components[key as keyof typeof components];
-        return <article className="component" key={key}><div className="component-heading"><h3>{label}</h3>
-          <span className={`diagnostic-status diagnostic-${component.status.toLowerCase()}`}>{shownStatus(component.status)}</span></div>
-          <p>{component.safe_code ? messages[component.safe_code] : 'Available.'}</p>
-          {component.last_seen_at && <p>Last activity: {time(component.last_seen_at)}</p>}</article>;
-      })}</section>
-      <h2>Sources</h2>{data.sources.length === 0 ? <p>No sources configured.</p> :
-        <div className="source-table"><table><thead><tr><th scope="col">Source</th><th scope="col">Type</th><th scope="col">Status</th>
-          <th scope="col">Schedule</th><th scope="col">Last Run</th><th scope="col">Last Success</th><th scope="col">Next Expected</th><th scope="col">Trigger</th><th scope="col">Warnings</th></tr></thead>
-          <tbody>{data.sources.map((source) => <tr key={source.source_instance}><td>{source.source_instance}</td>
-            <td>{source.source_type}</td><td>{source.status}</td><td>{source.scheduler_state}</td><td>{time(source.latest_run?.started_at ?? null)}</td>
-            <td>{time(source.latest_success_at)}</td><td>{time(source.next_expected_at)}</td><td>{source.latest_run?.trigger ?? 'None'}</td>
-            <td>{source.warning_count}</td></tr>)}</tbody></table></div>}
-      {data.sources.length > 0 && data.sources.every((source) => source.latest_run === null)
-        && <p>No synchronization runs recorded yet.</p>}
-      <section className="diagnostic-warnings"><h2>Warnings</h2>{data.warnings.length === 0 ? <p>No warnings.</p>
-        : data.warnings.map((warning, index) => <article className="source-error" key={`${warning.warning_code}-${warning.run_id ?? index}`}>
-          <h3>{warning.warning_code.replaceAll('_', ' ')}</h3><p>{warning.warning_code in messages
-            ? messages[warning.warning_code] : 'Diagnostic warning requires attention.'}</p>
-          {warning.source_instance && <p>Source: {warning.source_instance}</p>}
-          {warning.source_type && <p>Type: {warning.source_type}</p>}
-          {warning.trigger && <p>Trigger: {warning.trigger}</p>}
-          {warning.started_at && <p>Started: {time(warning.started_at)}</p>}</article>)}</section></>}
-  </main>;
+  const resource = useResource(fetchDiagnostics),
+    data = resource.data;
+  return (
+    <main className="operations-workspace">
+      <PageHeader
+        title="Diagnostics"
+        description="Checks and recorded activity, with evidence for investigation."
+        actions={
+          <button disabled={resource.loading} onClick={resource.refresh}>
+            Refresh
+          </button>
+        }
+      />
+      <ResourceFeedback
+        resource={resource}
+        label="diagnostics"
+        evidenceAt={data?.generated_at}
+      />
+      {data && (
+        <>
+          <section
+            className="diagnostic-summary source-panel"
+            aria-label="System assessment"
+          >
+            <div>
+              <h2>
+                <Badge
+                  value={healthStatus(data.overall_status)}
+                  code={data.overall_status}
+                />
+              </h2>
+              <p>{aggregateReason(data)}</p>
+            </div>
+            <p>
+              Snapshot <Timestamp value={data.generated_at} />
+            </p>
+          </section>
+          <section className="source-panel">
+            <h2>Component checks</h2>
+            <div className="diagnostic-components">
+              {(Object.keys(componentLabels) as ComponentKey[]).map((key) => {
+                const c = data.components[key];
+                return (
+                  <article
+                    id={"component-" + key}
+                    key={key}
+                    className="diagnostic-component"
+                  >
+                    <div>
+                      <h3>{componentLabels[key]}</h3>
+                      <Badge value={healthStatus(c.status)} code={c.status} />
+                    </div>
+                    <div>
+                      <p>{componentReason(key, c)}</p>
+                      <small>
+                        {key === "scheduler"
+                          ? "Last recorded activity"
+                          : "Last response"}
+                        : <Timestamp value={c.last_seen_at} />
+                      </small>
+                      <details>
+                        <summary>Technical evidence</summary>
+                        <dl className="technical-facts">
+                          <div>
+                            <dt>Recorded status</dt>
+                            <dd>{c.status}</dd>
+                          </div>
+                          <div>
+                            <dt>Checked at</dt>
+                            <dd>
+                              <Timestamp value={c.checked_at} />
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Last success</dt>
+                            <dd>
+                              <Timestamp value={c.last_success_at} />
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Next expected</dt>
+                            <dd>
+                              <Timestamp value={c.next_expected_at} />
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Safe code</dt>
+                            <dd>{c.safe_code ?? "None reported"}</dd>
+                          </div>
+                          {c.safe_message && (
+                            <div>
+                              <dt>Safe message</dt>
+                              <dd>{c.safe_message}</dd>
+                            </div>
+                          )}
+                        </dl>
+                      </details>
+                    </div>
+                    <div className="muted">
+                      Checked <Timestamp value={c.checked_at} />
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+          <section className="source-panel">
+            <h2>Attention</h2>
+            <DiagnosticAttention data={data} />
+          </section>
+          <section className="source-panel">
+            <h2>Source evidence</h2>
+            <p className="muted">
+              Derived from configuration and persisted runs. This does not
+              verify source connectivity or a live scheduler heartbeat.
+            </p>
+            {!diagnosticsUsable(data) ? (
+              <p>
+                Source evidence unavailable. Registry and run history checks
+                must both succeed.
+              </p>
+            ) : data.sources.length === 0 ? (
+              <p>
+                No sources configured. <Link to="/sources">Open Sources</Link>
+              </p>
+            ) : (
+              <div
+                className="source-table"
+                role="region"
+                aria-label="Source diagnostic evidence"
+                tabIndex={0}
+              >
+                <table>
+                  <thead>
+                    <tr>
+                      {[
+                        "Source",
+                        "Assessment",
+                        "Latest run",
+                        "Scheduled activity",
+                        "Last success",
+                      ].map((label) => (
+                        <th key={label} scope="col">
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.sources.map((s) => (
+                      <tr key={s.source_instance}>
+                        <td>
+                          <Link
+                            to={sourcePath(s.source_instance) + "/diagnostics"}
+                          >
+                            {s.source_instance}
+                          </Link>
+                          <small>
+                            {s.source_type === "proxmox"
+                              ? "Proxmox VE"
+                              : "VMware ESXi"}
+                          </small>
+                        </td>
+                        <td>
+                          <Badge value={healthStatus(s.status)} />
+                        </td>
+                        <td>
+                          {s.latest_run ? (
+                            <>
+                              <Link to={runPath(s.latest_run.run_id)}>
+                                <Badge
+                                  value={runStatus(
+                                    s.latest_run.status,
+                                    !!staleEvidence(
+                                      s.latest_run,
+                                      s.source_instance,
+                                      data,
+                                    ),
+                                  )}
+                                />
+                              </Link>
+                              <small>
+                                <Timestamp value={s.latest_run.started_at} />
+                              </small>
+                            </>
+                          ) : (
+                            "No runs recorded"
+                          )}
+                        </td>
+                        <td>
+                          <Link
+                            to={sourcePath(s.source_instance) + "/schedule"}
+                          >
+                            <Badge value={scheduleStates[s.scheduler_state]} />
+                          </Link>
+                          <small>
+                            Last scheduled:{" "}
+                            <Timestamp value={s.last_scheduled_run_at} />
+                          </small>
+                        </td>
+                        <td>
+                          <Timestamp value={s.latest_success_at} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+    </main>
+  );
 }

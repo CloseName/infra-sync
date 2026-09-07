@@ -67,9 +67,7 @@ test("direct routes, active navigation, Back/Forward and refresh", async ({
   ).toHaveAttribute("aria-current", "page");
   await page.getByRole("link", { name: "Source 051", exact: true }).click();
   await expect(page).toHaveURL(/sources\/source-51$/);
-  await expect(
-    page.getByRole("heading", { name: "Source 051"  }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Source 051" })).toBeVisible();
   await page.screenshot({
     path: "test-results/source-detail.png",
     fullPage: true,
@@ -89,6 +87,7 @@ test("direct routes, active navigation, Back/Forward and refresh", async ({
     page.getByRole("heading", { level: 1, name: "Run details" }),
   ).toBeVisible();
   await page.reload();
+  await page.getByText("Technical evidence", { exact: true }).click();
   await expect(page.getByText("web/manual")).toBeVisible();
   await page.screenshot({
     path: "test-results/run-detail.png",
@@ -258,9 +257,7 @@ test("source route remount isolates late discovery results", async ({
   await page.getByRole("link", { name: "Back to sources" }).click();
   await page.getByRole("link", { name: "Source 002", exact: true }).click();
   await finish();
-  await expect(
-    page.getByRole("heading", { name: "Source 002" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Source 002" })).toBeVisible();
   await expect(
     page.getByText("source-2", { exact: true }).last(),
   ).toBeVisible();
@@ -269,39 +266,64 @@ test("source route remount isolates late discovery results", async ({
   );
 });
 
-test("loading and empty run history do not flash zero metrics", async ({ page }) => {
+test("loading and empty run history do not flash zero metrics", async ({
+  page,
+}) => {
   await fixture(page, 1);
   let release;
-  await page.route("**/api/v1/sources", route => new Promise(resolve => {
-    release = async () => { await route.fulfill({ json: { sources: [source()] } }); resolve(); };
-  }));
-  await page.route("**/api/v1/runs?*", route => route.fulfill({ json: { runs: [], next_cursor: null } }));
+  await page.route(
+    "**/api/v1/sources",
+    (route) =>
+      new Promise((resolve) => {
+        release = async () => {
+          await route.fulfill({ json: { sources: [source()] } });
+          resolve();
+        };
+      }),
+  );
+  await page.route("**/api/v1/runs?*", (route) =>
+    route.fulfill({ json: { runs: [], next_cursor: null } }),
+  );
   await page.goto("/");
-  await expect(page.locator(".summary-panels > section").first().getByRole("status")).toBeVisible();
+  await expect(
+    page.locator(".summary-panels > section").first().getByRole("status"),
+  ).toBeVisible();
   await expect(page.getByText("0 registered")).toHaveCount(0);
   await release();
   await expect(page.getByText("1 registered")).toBeVisible();
   await expect(page.getByText("No runs have been recorded yet.")).toBeVisible();
 });
-test("history failure leaves independent overview sections available", async ({ page }) => {
+test("history failure leaves independent overview sections available", async ({
+  page,
+}) => {
   await fixture(page);
-  await page.route("**/api/v1/runs?*", route => route.fulfill({ status: 503, json: {} }));
+  await page.route("**/api/v1/runs?*", (route) =>
+    route.fulfill({ status: 503, json: {} }),
+  );
   await page.goto("/");
   await expect(page.getByText("1 registered")).toBeVisible();
   await expect(page.getByText("Recent activity unavailable.")).toBeVisible();
-  await expect(page.getByRole("alert")).toContainText("Run history unavailable");
+  await expect(page.getByRole("alert")).toContainText(
+    "Run history unavailable",
+  );
 });
-test("skip link and collapsed navigation are keyboard accessible", async ({ page }) => {
+test("skip link and collapsed navigation are keyboard accessible", async ({
+  page,
+}) => {
   await fixture(page);
   await page.setViewportSize({ width: 768, height: 900 });
   await page.goto("/");
   await page.locator("body").click({ position: { x: 760, y: 1 } });
   await page.keyboard.press("Control+Home");
   await page.getByRole("link", { name: "Skip to content" }).focus();
-  await expect(page.getByRole("link", { name: "Skip to content" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Skip to content" }),
+  ).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(page.locator("#content")).toBeFocused();
   await page.getByRole("button", { name: "Navigation", exact: true }).focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("button", { name: "Navigation", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    page.getByRole("button", { name: "Navigation", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
 });
