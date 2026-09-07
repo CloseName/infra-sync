@@ -1,4 +1,4 @@
-# Frontend foundation (UI-0 / UI-1 / UI-2 / UI-3 / UI-4)
+# Frontend foundation (UI-0 through UI-5)
 
 The React application uses React Router in declarative BrowserRouter mode.
 Routes: Overview `/`, Sources `/sources`, registration `/sources/add`,
@@ -32,7 +32,7 @@ Sources search, provider/health/schedule/attention/site filters, sort/direction,
 page and 25/50/100 page size live in URL query parameters. Filtering and pagination
 apply to the complete returned source list, not to a partial run selection.
 Source links preserve the originating query in browser history state.
-Client-side operation is verified with 105 unit-test rows and 55 browser-fixture
+Client-side operation is verified with 105 unit-test rows and 125 browser-fixture
 rows. At several hundred sources, measure payload, join/render time and diagnostics
 query latency before increasing scale. Server-side filtering/pagination and explicit
 coverage metadata are follow-up backend work, not claimed by this UI.
@@ -43,10 +43,9 @@ refresh or write retry. An aborted HTTP request does not promise server cancella
 Source components are remounted by route identity to isolate in-flight local results.
 
 Shared UI files under src/ui own health/schedule/outcome labels, attention/query
-derivations, human date/duration formatting, primitives and light-theme tokens.
-Unknown is neutral. Technical enums remain available as titles or aggregate text.
-The token layer permits future themes; no theme switcher or stored preferences
-are introduced.
+derivations, human date/duration formatting, primitives and light/dark theme tokens.
+Unknown is neutral. Technical enums remain available as titles or technical details.
+Light/Dark/System preference and its verification are documented in UI-5 below.
 
 Validation:
 - `npm test`: existing API client tests and deterministic projection tests.
@@ -414,7 +413,7 @@ Native labeled filters, semantic table headers, one h1, route links, keyboard
 disclosure and visible focus continue the existing UI foundation. Plan actions
 hide at 1280 and below, duration at 1024 and below; every value remains in run
 detail. Tables scroll locally, with keyboard focus, while diagnostic rows stack
-at 768. UI-5 retains whole-application visual polish and final hardening.
+at 768. At the UI-4 checkpoint, whole-application visual polish remained for UI-5 (completed below).
 
 No migrations, retries of synchronization, stale recovery, cancellation,
 delete, activity persistence, credentials, totals endpoint or timeframe filter
@@ -453,4 +452,179 @@ were added. Push/deploy requires a separate explicit request.
 - git diff --check and frontend stale-branding scan pass.
 
 No live provider, NetBox, historical server or production was touched.
-No push/deploy was performed. UI-5 was not started.
+No push/deploy was performed. UI-5 had not started at this UI-4 checkpoint.
+
+## Final visual language and UX hardening (UI-5)
+
+Baseline: clean main at `091bd231e398cffb31c35b70d729c613c9c58760`.
+The repository, contracts, tests and rendered application were inspected before
+editing. UI-0 through UI-4 were already implemented; this phase changes the
+frontend presentation and interaction details, not backend safety semantics.
+
+### Pre-polish audit
+
+| Area | Observed problem | Severity | Resolution |
+| --- | --- | --- | --- |
+| Shell and surfaces | White canvas, navigation and cards had weak separation | High | Cool canvas, distinct dark navigation, layered panels and muted technical regions |
+| Overview | Sparse attention panels stretched to match adjacent content | High | Top-aligned compact panels, clear section headers and evidence summary |
+| Tables and filters | Weak toolbar grouping and column emphasis | Medium | Grouped filter surface, compact alternating rows, stronger source/outcome hierarchy |
+| Source detail | Header, tabs and panels appeared disconnected | Medium | Shared object header, tab surface, metadata rhythm and panel treatment |
+| Sync | Uncertainty resembled ordinary warnings | High | Stronger uncertain outcome treatment, readable plan summary, review and result actions |
+| Diagnostics | Repeated timestamps and loose component rows encouraged scanning a long wall | Medium | Compact component rows; additional timestamps retained in Technical details |
+| Schedule/configuration | Uneven spacing and label hierarchy | Medium | Shared form/section styling, quieter identifiers and human schedule labels |
+| Add Source | Legacy fieldsets and terminal success view did not match other pages | High | Grouped forms, clear review, focused error/success states and links to registered source |
+| Cross-screen accessibility | Native zoom, themes and extended keyboard journeys lacked coverage | High | Theme/contrast, keyboard, narrow-height, long-text and true browser-zoom checks |
+
+### Visual principles and tokens
+
+The interface is a dense operator console: information hierarchy and the next
+safe action take precedence over decorative metrics. The NetBox reference was
+its object navigation, tables, panels and disclosure structure:
+[NetBox UI components](https://netboxlabs.com/docs/netbox/plugins/development/ui-components/).
+No NetBox CSS, logo or visual assets were copied, and no official/plugin status
+is implied. Four small original SVG navigation icons supplement text labels;
+no icon or UI dependency was added.
+
+`src/ui/tokens.css` owns semantic colors for canvas, surface, raised surface,
+muted/hover surface, border/control border, text/muted text, interaction/focus,
+info, success, warning, danger, neutral and navigation. `foundation.css` applies
+these tokens to shared layouts and components. Legacy base styles no longer
+introduce an independent color palette. Shadows are restrained; borders,
+section headers and surface contrast establish most separation.
+
+Page headings remain dominant without dashboard-sized typography. Table text
+is 14px, metadata generally 13px, with compact row padding and readable line
+height. Controls generally have a 36px minimum height. Rows and technical regions
+are visually secondary to source names, outcomes and primary actions. Large
+empty panels are avoided; empty states retain concise context and relevant links.
+Existing loading placeholders, independent resource loading and retained refresh
+context remain; no progress estimates or fake data were added.
+
+Overview and Sources now reuse UI-4's exact stale-evidence join: a recorded
+RUNNING outcome, matching run AND source identities, and usable history evidence.
+This avoids cross-source stale attribution. Failed refresh notices name the
+resource and keep its prior timestamp, so simultaneous history/diagnostic errors
+remain distinguishable. Technical details consistently use secondary disclosure.
+Raw transport enums are removed from ordinary overview prose where human labels
+exist; exact enums/identifiers remain available in appropriate technical context.
+
+Info/activity, success, attention/warning, danger and neutral have distinct
+presentations. Outcome uncertain is stronger than an ordinary warning. Unknown
+and disabled remain neutral; source enabled uses info rather than success.
+Labels/icons remain alongside color. Sync still submits the entire reviewed plan,
+retains missing objects, checks staleness, isolates review rows and never retries
+an uncertain write automatically. No capability or authorization rules changed.
+
+All source tabs share the same object header and section surfaces. Schedule
+keeps its exact custom interval and conflict checks. Configuration remains
+read-first with grouped identity, connection, target, provider and TLS facts.
+Add Source retains test/review/register and credential clearing; it only gains
+consistent grouping, focus feedback and navigation after successful registration.
+This is not the future Bootstrap wizard.
+
+### Theme decision
+
+Light, Dark and System are implemented across the shell, panels, tables, forms,
+dialogs, empty/error states and technical disclosures. System is the default.
+The explicit choice lives only in `localStorage` under `netbox-sync.theme`;
+invalid values revert to System and blocked storage does not break the UI.
+The initial theme is applied before React renders. System changes and another
+tab's preference changes update the theme without refetching operational data.
+The preference stores no source or credential data.
+
+### Responsive and accessibility verification
+
+- Complete screen galleries cover 1440, 1280, 1024 and 768 CSS pixels in both
+  light and dark themes. Navigation collapses at 800px; tabs and controls wrap,
+  diagnostic rows stack, and wide tables scroll inside focusable local regions.
+- Long source/VM names and reasons were checked at 720x400. Dialog controls remain
+  reachable with keyboard focus and internal scrolling. Focus is visible for
+  links, inputs, buttons, disclosures and route content. The skip link is clipped
+  when unfocused and visible when focused; Escape returns collapsed-navigation
+  focus to its toggle. Route changes focus content and Back/Forward retain
+  existing routing behavior.
+- True 200% browser zoom uses a fresh full-Chromium profile with a native zoom
+  preference, not CSS zoom or a pinch-scale emulation. The test asserts DPR >=
+  1.99 and a layout viewport <= 720px from a 1440px window, checks all main pages
+  for overflow, then builds a plan and checks the confirmation dialog. The
+  screenshot comes directly from Chromium's compositor so native zoom is not
+  misinterpreted by screenshot clipping. The temporary profile is safely removed.
+- Browser journeys exercise skip/route focus, navigation, tab links, plan row
+  disclosure, modal focus trap/cancel/return, registration review/success focus,
+  forms, async states and error messages. Existing stale-plan, late-response,
+  duplicate-submit and schedule-conflict regressions remain.
+- Computed semantic text/background pairs pass 4.5:1 and control borders against
+  input surfaces pass 3:1 in both themes. Reduced-motion preference is exercised;
+  existing reduced-motion rules remain. These checks cover the defined pairs,
+  not every possible OS/browser rendering or user stylesheet.
+- Manual visual inspection covered representative screenshots of every main
+  screen, both themes, desktop/tablet widths, mixed plan, confirmation, uncertain
+  result, healthy/degraded diagnostics and empty/refresh-error states. Native
+  zoom dialog capture was also inspected. Keyboard interactions were exercised
+  through browser automation; no independent screen-reader user study was run.
+
+This is an accessibility hardening pass aimed at WCAG 2.2 AA, not a conformance
+certification. Firefox, WebKit, forced-colors and assistive-technology combinations
+were not independently verified. These remain verification limitations rather
+than claims about supported or unsupported browsers.
+
+### UI-5 validation and performance
+
+- 44 frontend unit tests pass; strict TypeScript and Vite production build pass.
+- 119 Playwright tests pass, preserving the UI-0 through UI-4 suite and adding
+  21 UI-5 checks. The subsequently expanded all-screen native-zoom check also
+  passes independently. No real providers or NetBox were contacted.
+- Mocked journeys cover Overview attention to source; plan/review/confirm/success;
+  stale plan; uncertain outcome; read-only Runs/Diagnostics; schedule save and
+  conflict; and the existing Add Source flow with cleared credentials and sync off.
+- Sources/Runs were checked with 125 fixture records: 100 visible source rows and
+  50/50/25 run pages. The local navigation/render scenario completed in under one
+  second in the final run; this is an observation, not a benchmark or server SLA.
+  Theme switching does not refetch data. No dependency, polling or animation load
+  was introduced.
+- Final JS: 338.80 kB (101.48 kB gzip); CSS: 27.93 kB (6.06 kB gzip).
+  UI-4 JS was about 334.98 kB; the increase is small and includes theme handling
+  and form/navigation hardening. CSS growth supplies the complete two-theme
+  surface system. No bundle splitting or speculative performance framework added.
+- The UI-5 gallery contains 138 PNGs in ignored `frontend/test-results`, including
+  all main screens and key states in both themes at four widths, plus narrow
+  dialog and native zoom captures. Tests regenerate these; they are not brittle
+  pixel-perfect snapshot assertions or committed binary assets.
+- Backend code, API DTOs, dependencies, migrations and Dockerfile.web are unchanged.
+  No unrelated backend suite was required for these frontend-only changes.
+- `git diff --check` and the frontend/docs stale-branding scan pass.
+
+### Production-container acceptance
+
+Docker Engine 29.7.2 / Compose 5.5.0. Dockerfile.web builds successfully.
+The final disposable container ran the default Uvicorn command as UID 10001,
+serving `/app/web` with network none, a read-only filesystem, dropped capabilities,
+no-new-privileges, and only an ephemeral /tmp. No ports, credentials or host
+volumes were exposed.
+
+The following direct requests returned 200 HTML identical to the image's
+`/app/web/index.html`:
+
+- `/`
+- `/sources`
+- `/sources/test-source`
+- `/sources/test-source/sync`
+- `/sources/test-source/schedule`
+- `/runs`
+- `/runs/test-run`
+- `/diagnostics`
+- `/sources/add`
+
+`/api/v1/health` returned 200 with healthy status. Built JS and CSS were served
+with correct MIME types and matched image files byte-for-byte (338803 / 27926
+bytes). `/api/unknown`, `/api/v1/unknown`, `/assets/missing.js`,
+`/assets/missing.css`, `/unknown-frontend-route`, `/sources/test-source/unknown`
+and `/runs/test-run/unknown` retained JSON 404 responses. This verifies the
+production serving path independently of Vite. Uniquely labeled smoke containers
+and images were removed after ownership checks; shared Docker cache was not pruned.
+
+UI-5 closes the current full redesign. Remaining product boundaries are unchanged:
+no Bootstrap wizard, LDAP/RBAC, global search, saved views, bulk actions, deletion,
+telemetry, new integrations or speculative post-v1 work. Large-scale backend
+pagination/coverage work remains outside this phase. Production and the historical
+server were untouched. Push/deploy requires a separate explicit user request.
